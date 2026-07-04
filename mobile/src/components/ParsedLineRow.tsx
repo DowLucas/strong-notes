@@ -1,12 +1,12 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import type { ParsedLine } from '../parsing/quickEntry';
 
-export function ParsedLineRow({
+export function ParsedLineRow<T extends ParsedLine>({
   line,
   onConfirm,
 }: {
-  line: ParsedLine;
-  onConfirm?: (line: ParsedLine) => void;
+  line: T;
+  onConfirm?: (line: T) => void;
 }) {
   return (
     <View style={styles.row}>
