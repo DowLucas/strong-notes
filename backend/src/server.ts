@@ -3,6 +3,7 @@ import cors from 'cors';
 import { healthRouter } from './routes/health.js';
 import { requireAuth } from './middleware/auth.js';
 import { resolveRouter } from './routes/resolve.js';
+import { abbreviationsRouter } from './routes/abbreviations.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export function createApp() {
@@ -13,7 +14,7 @@ export function createApp() {
   app.use(requireAuth);
   // authenticated routers are added by later tasks below this line
   app.use(resolveRouter);
-  app.get('/abbreviations', (_req, res) => res.status(200).json([]));
+  app.use(abbreviationsRouter);
   // must be mounted after all routers: catches errors forwarded via next(err)
   // from asyncHandler-wrapped routes so they become clean JSON 500s instead
   // of crashing the process.
