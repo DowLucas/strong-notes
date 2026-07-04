@@ -74,10 +74,24 @@ func TestSessions_Get_ReturnsSessionsInRange(t *testing.T) {
 	}
 
 	var sessions []struct {
-		ID string `json:"id"`
+		ID      string `json:"id"`
+		Entries []struct {
+			RawText string `json:"rawText"`
+		} `json:"entries"`
 	}
 	json.Unmarshal(getW.Body.Bytes(), &sessions)
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session, got %d: %s", len(sessions), getW.Body.String())
+	}
+	if len(sessions[0].Entries) != 1 || sessions[0].Entries[0].RawText != "squat" {
+		t.Fatalf("expected 1 entry with rawText 'squat', got %+v", sessions[0].Entries)
+	}
+
+	respBody := getW.Body.String()
+	if !strings.Contains(respBody, `"rawText"`) {
+		t.Errorf("expected camelCase \"rawText\" in Get response, got %s", respBody)
+	}
+	if strings.Contains(respBody, `"raw_text"`) || strings.Contains(respBody, `"user_id"`) {
+		t.Errorf("expected no snake_case keys in Get response, got %s", respBody)
 	}
 }

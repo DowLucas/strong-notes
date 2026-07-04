@@ -41,7 +41,26 @@ func (h *SessionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, sessions)
+
+	responses := make([]map[string]any, len(sessions))
+	for i, session := range sessions {
+		entries, err := h.queries.GetSetEntriesForSession(r.Context(), session.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "fetch entries failed")
+			return
+		}
+		entryResponses := make([]setEntryResponse, len(entries))
+		for j, e := range entries {
+			entryResponses[j] = toSetEntryResponse(e)
+		}
+		responses[i] = map[string]any{
+			"id":      session.ID,
+			"date":    session.Date,
+			"notes":   session.Notes,
+			"entries": entryResponses,
+		}
+	}
+	writeJSON(w, http.StatusOK, responses)
 }
 
 type putSessionEntry struct {
