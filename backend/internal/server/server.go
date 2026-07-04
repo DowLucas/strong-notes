@@ -91,6 +91,11 @@ func New(cfg *config.Config, pool *pgxpool.Pool, queries *db.Queries, jwtSvc *au
 		r.Get("/api/sessions", sessionsH.Get)
 		r.Put("/api/sessions/{date}", sessionsH.Put)
 
+		goalsH := handler.NewGoalsHandler(pool, queries)
+		r.Post("/api/goals", goalsH.Create)
+		r.Get("/api/goals/active", goalsH.GetActive)
+		r.Get("/api/goals/active/progress", goalsH.GetActiveProgress)
+
 		// Avatar routes only mount when object storage is configured.
 		// Without it, the upload endpoint would 500 on every call; better to
 		// surface a clean 404 so the client can hide the affordance.
