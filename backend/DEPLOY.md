@@ -18,7 +18,16 @@ stay disabled per the project's constraints — `S3_ENDPOINT` and
    - `LLM_PROVIDER=anthropic`
    - `ANTHROPIC_API_KEY=<key>`
    - Leave `S3_ENDPOINT=` and `JOBS_ENABLED=false` as shipped — both features are out of scope for this deploy.
-5. `cd /opt/stacks/strong-notes-api && sudo docker compose up -d --build`
+5. `cd /opt/stacks/strong-notes-api && sudo docker compose --env-file .env.local up -d --build`
+
+   The `--env-file` flag is required here: `env_file: .env.local` in
+   `docker-compose.yml` only injects vars into the *backend container's*
+   runtime environment, but `${POSTGRES_PASSWORD}` / `${POSTGRES_DATA_DIR}`
+   are substituted into the compose file itself at parse time, which Compose
+   only does from the shell environment or an explicit `--env-file` — never
+   from a service's `env_file:`. Omitting the flag silently defaults
+   `POSTGRES_PASSWORD` to an empty string and `POSTGRES_DATA_DIR` to
+   `./.pgdata`.
 6. Migrations run automatically on backend startup (`runMigrations` in `cmd/api/main.go`) — no manual migration step needed.
 7. Append to `/opt/stacks/caddy/Caddyfile`:
    ```
@@ -47,7 +56,7 @@ stay disabled per the project's constraints — `S3_ENDPOINT` and
   stray `-v` flag. Back that path up like any other stateful ZFS dataset.
   If `POSTGRES_DATA_DIR` is unset, Compose falls back to `./.pgdata` next to
   the compose file — fine for a laptop, not for this deploy.
-- To roll out a new version: `git pull && sudo docker compose up -d --build`.
+- To roll out a new version: `git pull && sudo docker compose --env-file .env.local up -d --build`.
   The backend's healthcheck (`/api/health/liveness`) gates Compose's own
   `service_healthy` semantics if you chain this stack behind another that
   depends on it.
