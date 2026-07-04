@@ -1,207 +1,46 @@
-import { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, FlatList, StyleSheet } from 'react-native';
-import { parseQuickEntryLine, type ParsedLine } from '../../src/parsing/quickEntry';
-import { upsertLocalSession, getLocalSession } from '../../src/db/sessionsRepo';
-import { ParsedLineRow } from '../../src/components/ParsedLineRow';
-import { createExercise, createAbbreviation } from '../../src/api/client';
+import { View, StyleSheet, ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
+import { Text } from '@/components/Text';
+import { TopBar } from '@/components/TopBar';
+import { ContentContainer } from '@/components/ContentContainer';
+import { useAuth } from '@/lib/auth';
+import { colors, spacing, typography } from '@/lib/theme';
 
-// The UI/persistence list carries a stable id per entry, generated the
-// moment it's submitted - independent of whatever parseQuickEntryLine later
-// resolves it to. That id is how the background parse (below) finds its way
-// back to the right entry to update, and how SQLite rows stay stable across
-// re-persists instead of being re-derived from array position.
-type UiLine = ParsedLine & { id: string };
-
-const ERROR_MESSAGE = "Couldn't load data. Pull down or reopen the app to retry.";
-
-function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-let idCounter = 0;
-function makeEntryId(): string {
-  idCounter += 1;
-  return `entry-${Date.now()}-${idCounter}`;
-}
-
-export default function LogScreen() {
-  const [text, setText] = useState('');
-  const [lines, setLines] = useState<UiLine[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  // `lines` (React state) is only current as of the last render, so a
-  // handleSubmit call that's been suspended on the `await parseQuickEntryLine`
-  // network round-trip can end up closing over a stale value if another
-  // submission commits state in the meantime. `linesRef` is a plain mutable
-  // ref we update synchronously ourselves, so it always reflects the latest
-  // known list regardless of render timing - each submission appends onto
-  // whatever the ref holds "right now", never onto a stale snapshot.
-  const linesRef = useRef<UiLine[]>([]);
-
-  // SQLite writes read-then-write (fetch existing entries to preserve their
-  // ids, then upsert the full list). If two submissions' writes overlapped,
-  // the second could read state from before the first write committed and
-  // clobber it. Chaining every persist call onto this queue serializes them
-  // so writes always happen one at a time, in the order their submissions
-  // resolved.
-  const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
-
-  // Today's already-logged entries live in SQLite (and the backend) the
-  // moment they're submitted, but `lines`/`linesRef` start empty on every
-  // mount - without this, switching tabs and back (or reopening the app)
-  // shows a blank Log screen even though today's sets are already saved.
-  useEffect(() => {
-    (async () => {
-      try {
-        const existing = await getLocalSession(todayDate());
-        if (!existing) return;
-        const restored: UiLine[] = existing.entries.map((e) => ({
-          id: e.id,
-          rawText: e.rawText,
-          // Persisted entries never carry a live ParsedLine status; treat an
-          // entry with a linked exercise as resolved, everything else as
-          // still-pending so it's visually distinguishable from a fully
-          // parsed line rather than silently misrepresented as resolved.
-          status: e.exerciseId ? 'resolved' : 'pending',
-          parsedBy: e.parsedBy,
-          exerciseId: e.exerciseId ?? undefined,
-          equipment: e.equipment ?? undefined,
-          weightKg: e.weightKg ?? undefined,
-          reps: e.reps ?? undefined,
-          sets: e.sets ?? undefined,
-        }));
-        linesRef.current = restored;
-        setLines(restored);
-      } catch {
-        setError(ERROR_MESSAGE);
-      }
-    })();
-  }, []);
-
-  async function persistLines(allLines: UiLine[]): Promise<void> {
-    const date = todayDate();
-    const existing = await getLocalSession(date);
-    await upsertLocalSession({
-      date,
-      notes: existing?.notes ?? null,
-      synced: 0,
-      entries: allLines.map((l, i) => ({
-        id: l.id,
-        exerciseId: l.exerciseId ?? null,
-        equipment: l.equipment ?? null,
-        weightKg: l.weightKg ?? null,
-        reps: l.reps ?? null,
-        sets: l.sets ?? null,
-        rawText: l.rawText,
-        // Storage still requires a concrete parsedBy; a still-'pending' line
-        // hasn't been classified yet, so this is just a placeholder until
-        // the background parse (or a later resolution) overwrites it.
-        parsedBy: l.parsedBy ?? 'DICTIONARY',
-        order: i,
-        synced: 0,
-      })),
-    });
-  }
-
-  function persist(allLines: UiLine[]): Promise<void> {
-    const task = persistQueueRef.current.then(() => persistLines(allLines));
-    // Swallow errors on the shared queue itself so one failed write doesn't
-    // permanently wedge the queue for subsequent submissions; the failure
-    // still propagates to this call's own awaiter below.
-    persistQueueRef.current = task.catch(() => undefined);
-    return task;
-  }
-
-  function updateEntry(id: string, updates: Partial<ParsedLine>): Promise<void> {
-    const updated = linesRef.current.map((l) => (l.id === id ? { ...l, ...updates } : l));
-    linesRef.current = updated;
-    setLines(updated);
-    return persist(updated);
-  }
-
-  async function handleSubmit() {
-    const line = text.trim();
-    if (!line) return;
-    setText('');
-
-    // Offline-first: the raw line is written to local SQLite (and shown in
-    // the UI) immediately, before parseQuickEntryLine is even called. That
-    // call may hit the network (see quickEntry.ts's local-dictionary-first
-    // resolution) and can fail if the device is offline or the backend is
-    // down - by the time that happens the entry is already durable, so a
-    // rejection can never lose the line the user just typed.
-    const id = makeEntryId();
-    const pendingEntry: UiLine = { id, rawText: line, status: 'pending' };
-
-    const nextLines = [...linesRef.current, pendingEntry];
-    linesRef.current = nextLines;
-    setLines(nextLines);
-    try {
-      await persist(nextLines);
-      setError(null);
-    } catch {
-      // The write that's supposed to make this entry durable failed (disk
-      // full, DB locked, etc.) - surface the same retry hint used elsewhere
-      // rather than letting the rejection go unhandled.
-      setError(ERROR_MESSAGE);
-      return;
-    }
-
-    // Classification runs in the background - handleSubmit does not await
-    // it, so submitting never blocks on the network.
-    parseQuickEntryLine(line)
-      .then((parsed) => {
-        setError(null);
-        return updateEntry(id, parsed);
-      })
-      .catch(() => {
-        // The raw entry is already saved and visible; leave it in its
-        // 'pending' (unparsed) state rather than dropping it, and surface a
-        // retry hint.
-        setError(ERROR_MESSAGE);
-      });
-  }
-
-  // Handles a user tapping "Confirm: <name>" on a 'needs-confirm' line: turns
-  // the LLM's one-off guess into a permanent, reusable resolution by (a)
-  // creating (or reusing, per the backend's name-based dedupe) the real
-  // Exercise, (b) saving the literal unresolved token as a new Abbreviation
-  // pointing at it so this shorthand never needs the LLM again, and (c)
-  // flipping the entry to 'resolved' so it counts toward progress and
-  // re-persists via the existing queue.
-  async function handleConfirmLine(line: UiLine): Promise<void> {
-    try {
-      const exercise = await createExercise({ name: line.exerciseName!, muscles: line.muscles ?? [] });
-      await createAbbreviation({ token: line.unresolvedToken!, exerciseId: exercise.id });
-      await updateEntry(line.id, { status: 'resolved', exerciseId: exercise.id, parsedBy: 'LLM' });
-      setError(null);
-    } catch {
-      setError(ERROR_MESSAGE);
-    }
-  }
+export default function Home() {
+  const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const { session } = useAuth();
+  const user = session?.user;
+  const firstName = user?.name?.trim().split(/\s+/)[0] ?? '';
 
   return (
-    <View style={styles.container}>
-      {error && <Text style={styles.error}>{error}</Text>}
-      <FlatList
-        data={lines}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <ParsedLineRow line={item} onConfirm={handleConfirmLine} />}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Log a set..."
-        value={text}
-        onChangeText={setText}
-        onSubmitEditing={handleSubmit}
-        returnKeyType="done"
-      />
+    <View style={[styles.root, { paddingTop: insets.top }]}>
+      <TopBar title={t('app.name')} />
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <ContentContainer style={styles.content}>
+          <Text variant="displayM" style={styles.greeting}>
+            {firstName ? t('home.greeting', { name: firstName }) : t('home.greetingFallback')}
+          </Text>
+          <Text variant="body" color={colors.lead} style={styles.subtitle}>
+            {t('home.subtitle')}
+          </Text>
+          {user?.email ? (
+            <Text variant="monoCaption" color={colors.lead} style={styles.email}>
+              {t('home.signedInAs', { email: user.email })}
+            </Text>
+          ) : null}
+        </ContentContainer>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 12, marginTop: 8 },
-  error: { color: '#a33', marginBottom: 8 },
+  root: { flex: 1, backgroundColor: colors.paper },
+  scroll: { flexGrow: 1 },
+  content: { paddingHorizontal: spacing.s5, paddingTop: spacing.s6, gap: spacing.s3 },
+  greeting: { ...typography.displayM, letterSpacing: -0.6 },
+  subtitle: { lineHeight: 22 },
+  email: { marginTop: spacing.s3, letterSpacing: 0.3 },
 });

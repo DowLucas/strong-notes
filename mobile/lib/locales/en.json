@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "Scaffold"
+  },
+  "common": {
+    "back": "Back",
+    "cancel": "Cancel",
+    "close": "Close",
+    "done": "Done",
+    "error": "Error",
+    "loading": "Loading…",
+    "ok": "OK",
+    "save": "Save",
+    "saving": "Saving…"
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "network": "Couldn't reach the server. Check your connection and try again.",
+    "unauthorized": "Your session has expired. Please sign in again."
+  },
+  "home": {
+    "greeting": "Hello, {{name}}.",
+    "greetingFallback": "Hello.",
+    "signedInAs": "Signed in as {{email}}",
+    "subtitle": "You're signed in. This is your starting point — build your app from here."
+  },
+  "languagePicker": {
+    "empty": "No languages match.",
+    "searchPlaceholder": "Search by name or code…"
+  },
+  "settings": {
+    "about": {
+      "repoLabel": "View source on GitHub",
+      "tagline": "A minimal Expo + Go app scaffold.",
+      "title": "About",
+      "version": "Version {{version}}"
+    }
+  },
+  "signIn": {
+    "checkEmail": "Check your email",
+    "checkEmailBody": "We sent a sign-in code to {{email}}. Paste it below to continue.",
+    "couldNotSend": "Could not send magic link",
+    "couldNotSendBody": "Something went wrong sending your magic link. Please try again.",
+    "devHint": "Dev mode: the code is returned inline and filled in for you.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "your@email.com",
+    "eyebrow": "sign in",
+    "headline": "Welcome to\nScaffold.",
+    "sending": "Sending…",
+    "sendLink": "Send magic link",
+    "subtitle": "Sign in with a magic link. Enter your email and we'll send you a one-time sign-in code.",
+    "tokenLabel": "Sign-in code",
+    "tokenPlaceholder": "Paste your code",
+    "verify": "Verify and sign in",
+    "verifyFailed": "Sign in failed",
+    "verifyFailedBody": "That code is invalid or expired. Request a new magic link and try again.",
+    "verifying": "Verifying…"
+  },
+  "you": {
+    "about": "About the app",
+    "accountEyebrow": "account",
+    "avatar": {
+      "choosePhoto": "Choose from library",
+      "chooseTitle": "Profile photo",
+      "permissionBody": "Grant photo access in Settings to change your profile photo.",
+      "permissionTitle": "Permission needed",
+      "remove": "Remove photo",
+      "tooLargeBody": "Pick a photo under 5 MB.",
+      "tooLargeTitle": "Photo too large",
+      "uploadFailedBody": "We couldn't upload your photo. Please try again.",
+      "uploadFailedTitle": "Upload failed",
+      "uploading": "Uploading…"
+    },
+    "emailLabel": "email",
+    "language": "Language",
+    "languageAuto": "Automatic",
+    "settingsEyebrow": "settings",
+    "signOut": "Sign out",
+    "signOutConfirmBody": "You'll need a new magic link to sign back in.",
+    "signOutConfirmTitle": "Sign out?",
+    "title": "Profile"
+  }
+}
