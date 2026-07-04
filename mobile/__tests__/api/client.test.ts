@@ -1,4 +1,4 @@
-import { resolveLine, putSession, getGoalProgress } from '../../src/api/client';
+import { resolveLine, putSession, getGoalProgress, buildEmphasisOverrides, ApiError } from '../../src/api/client';
 import { getApiToken } from '../../src/auth/token';
 
 jest.mock('../../src/auth/token', () => ({
@@ -38,6 +38,18 @@ describe('api client', () => {
     await expect(putSession('2026-07-04', { entries: [] })).rejects.toThrow('500');
   });
 
+  it('throws an ApiError carrying the status code on a non-ok response', async () => {
+    expect.assertions(2);
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 404, json: async () => ({}) });
+
+    try {
+      await putSession('2026-07-04', { entries: [] });
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(404);
+    }
+  });
+
   it('builds the query string for getGoalProgress', async () => {
     (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => [] });
 
@@ -47,5 +59,29 @@ describe('api client', () => {
       expect.stringContaining('/goals/active/progress?weekStart=2026-07-06'),
       expect.any(Object)
     );
+  });
+
+  describe('buildEmphasisOverrides', () => {
+    it('raises min and max above the type default for an identified muscle', () => {
+      const overrides = buildEmphasisOverrides('STRENGTH', ['GLUTES']);
+
+      expect(overrides).toEqual([{ muscle: 'GLUTES', min: 8, max: 12 }]);
+      // Sanity check against a plain STRENGTH goal's default GLUTES range (min 4, max 8).
+      expect(overrides[0].min).toBeGreaterThan(4);
+      expect(overrides[0].max).toBeGreaterThan(8);
+    });
+
+    it('returns one override per identified muscle and nothing for muscles not identified', () => {
+      const overrides = buildEmphasisOverrides('HYPERTROPHY', ['CHEST', 'BACK']);
+
+      expect(overrides).toHaveLength(2);
+      expect(overrides.find((o) => o.muscle === 'CHEST')).toEqual({ muscle: 'CHEST', min: 14, max: 22 });
+      expect(overrides.find((o) => o.muscle === 'BACK')).toEqual({ muscle: 'BACK', min: 14, max: 20 });
+      expect(overrides.find((o) => o.muscle === 'QUADS')).toBeUndefined();
+    });
+
+    it('returns an empty array when no muscles are identified', () => {
+      expect(buildEmphasisOverrides('ENDURANCE', [])).toEqual([]);
+    });
   });
 });

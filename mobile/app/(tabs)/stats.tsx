@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { View, ScrollView, Text, TextInput, Pressable, StyleSheet } from 'react-native';
-import { getGoalProgress, createGoal, resolveGoal } from '../../src/api/client';
+import { getGoalProgress, createGoal, resolveGoal, buildEmphasisOverrides, ApiError } from '../../src/api/client';
 import { syncNow } from '../../src/sync/syncEngine';
 import { MuscleHeatmap } from '../../src/components/MuscleHeatmap';
 import type { GoalProgress, GoalType } from '../../src/api/types';
 
 const ERROR_MESSAGE = "Couldn't load data. Pull down or reopen the app to retry.";
+const NO_GOAL_MESSAGE = 'No goal set yet — pick one below to start tracking.';
 
 const PRESETS: { type: GoalType; label: string }[] = [
   { type: 'HYPERTROPHY', label: 'Hypertrophy' },
@@ -25,6 +26,7 @@ function currentWeekStart(): string {
 export default function StatsScreen() {
   const [progress, setProgress] = useState<GoalProgress[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [noActiveGoal, setNoActiveGoal] = useState(false);
   const [goalText, setGoalText] = useState('');
 
   async function refreshProgress() {
@@ -38,8 +40,15 @@ export default function StatsScreen() {
         await syncNow();
         await refreshProgress();
         setError(null);
-      } catch {
-        setError(ERROR_MESSAGE);
+        setNoActiveGoal(false);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          // No active goal yet (e.g. fresh install) — expected, not a real failure.
+          setNoActiveGoal(true);
+          setError(null);
+        } else {
+          setError(ERROR_MESSAGE);
+        }
       }
     })();
   }, []);
@@ -49,6 +58,7 @@ export default function StatsScreen() {
       await createGoal({ type });
       await refreshProgress();
       setError(null);
+      setNoActiveGoal(false);
     } catch {
       setError(ERROR_MESSAGE);
     }
@@ -59,10 +69,13 @@ export default function StatsScreen() {
     if (!description) return;
     try {
       const guess = await resolveGoal(description);
-      await createGoal({ type: guess.type, description });
+      const overrides =
+        guess.muscles.length > 0 ? buildEmphasisOverrides(guess.type, guess.muscles) : undefined;
+      await createGoal({ type: guess.type, description, ...(overrides ? { overrides } : {}) });
       await refreshProgress();
       setGoalText('');
       setError(null);
+      setNoActiveGoal(false);
     } catch {
       setError(ERROR_MESSAGE);
     }
@@ -72,6 +85,7 @@ export default function StatsScreen() {
     <ScrollView>
       <View style={{ padding: 16 }}>
         {error && <Text style={{ color: '#a33', marginBottom: 8 }}>{error}</Text>}
+        {!error && noActiveGoal && <Text style={{ marginBottom: 8 }}>{NO_GOAL_MESSAGE}</Text>}
 
         <View style={styles.presetRow}>
           {PRESETS.map((preset) => (

@@ -1,14 +1,18 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import StatsScreen from '../../app/(tabs)/stats';
 import { resetDbForTests } from '../../src/db/client';
-import { getGoalProgress, createGoal, resolveGoal } from '../../src/api/client';
+import { getGoalProgress, createGoal, resolveGoal, ApiError } from '../../src/api/client';
 import { syncNow } from '../../src/sync/syncEngine';
 
-jest.mock('../../src/api/client', () => ({
-  getGoalProgress: jest.fn().mockResolvedValue([]),
-  createGoal: jest.fn().mockResolvedValue({}),
-  resolveGoal: jest.fn().mockResolvedValue({ type: 'HYPERTROPHY', muscles: [] }),
-}));
+jest.mock('../../src/api/client', () => {
+  const actual = jest.requireActual('../../src/api/client');
+  return {
+    ...actual,
+    getGoalProgress: jest.fn().mockResolvedValue([]),
+    createGoal: jest.fn().mockResolvedValue({}),
+    resolveGoal: jest.fn().mockResolvedValue({ type: 'HYPERTROPHY', muscles: [] }),
+  };
+});
 
 jest.mock('../../src/sync/syncEngine', () => ({
   syncNow: jest.fn().mockResolvedValue({ pushed: 0, pulled: 0 }),
@@ -48,6 +52,28 @@ describe('StatsScreen', () => {
     await waitFor(() => {
       expect(screen.getByText("Couldn't load data. Pull down or reopen the app to retry.")).toBeTruthy();
     });
+  });
+
+  it('shows a friendly empty state (not the error banner) when getGoalProgress 404s (no active goal yet)', async () => {
+    mockGetGoalProgress.mockRejectedValueOnce(new ApiError('no active goal', 404));
+
+    await render(<StatsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('No goal set yet — pick one below to start tracking.')).toBeTruthy();
+    });
+    expect(screen.queryByText("Couldn't load data. Pull down or reopen the app to retry.")).toBeNull();
+  });
+
+  it('still shows the generic error banner when getGoalProgress fails with a real error (500)', async () => {
+    mockGetGoalProgress.mockRejectedValueOnce(new ApiError('server error', 500));
+
+    await render(<StatsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Couldn't load data. Pull down or reopen the app to retry.")).toBeTruthy();
+    });
+    expect(screen.queryByText('No goal set yet — pick one below to start tracking.')).toBeNull();
   });
 
   it('shows an error message when syncNow rejects', async () => {
@@ -97,10 +123,31 @@ describe('StatsScreen', () => {
       expect(mockResolveGoal).toHaveBeenCalledWith('I want a bigger booty');
     });
     await waitFor(() => {
-      expect(mockCreateGoal).toHaveBeenCalledWith({ type: 'STRENGTH', description: 'I want a bigger booty' });
+      expect(mockCreateGoal).toHaveBeenCalledWith({
+        type: 'STRENGTH',
+        description: 'I want a bigger booty',
+        overrides: [{ muscle: 'GLUTES', min: 8, max: 12 }],
+      });
     });
     await waitFor(() => {
       expect(mockGetGoalProgress).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('entering free text with no identified muscles creates the goal without overrides', async () => {
+    mockResolveGoal.mockResolvedValueOnce({ type: 'HYPERTROPHY', muscles: [] });
+
+    await render(<StatsScreen />);
+
+    await waitFor(() => {
+      expect(mockGetGoalProgress).toHaveBeenCalledTimes(1);
+    });
+
+    await fireEvent.changeText(screen.getByPlaceholderText('Or describe your goal...'), 'get generally fitter');
+    await fireEvent.press(screen.getByText('Set Goal'));
+
+    await waitFor(() => {
+      expect(mockCreateGoal).toHaveBeenCalledWith({ type: 'HYPERTROPHY', description: 'get generally fitter' });
     });
   });
 
