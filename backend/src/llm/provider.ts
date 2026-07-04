@@ -1,5 +1,6 @@
 import { OllamaProvider } from './ollamaProvider.js';
 import { AnthropicProvider } from './anthropicProvider.js';
+import type { MuscleGroup } from '@prisma/client';
 
 export type LineGuess = {
   exerciseName: string;
@@ -7,6 +8,7 @@ export type LineGuess = {
   weightKg?: number;
   reps?: number;
   sets?: number;
+  muscles: MuscleGroup[];
 };
 
 export type GoalGuess = {

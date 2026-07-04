@@ -6,6 +6,7 @@ import { resolveRouter } from './routes/resolve.js';
 import { abbreviationsRouter } from './routes/abbreviations.js';
 import { sessionsRouter } from './routes/sessions.js';
 import { goalsRouter } from './routes/goals.js';
+import { exercisesRouter } from './routes/exercises.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export function createApp() {
@@ -19,6 +20,7 @@ export function createApp() {
   app.use(abbreviationsRouter);
   app.use(sessionsRouter);
   app.use(goalsRouter);
+  app.use(exercisesRouter);
   // must be mounted after all routers: catches errors forwarded via next(err)
   // from asyncHandler-wrapped routes so they become clean JSON 500s instead
   // of crashing the process.
