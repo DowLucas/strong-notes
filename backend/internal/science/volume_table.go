@@ -31,8 +31,16 @@ var table = map[string]map[string]Range{
 	"CUSTOM":      hypertrophy, // CUSTOM starts from hypertrophy defaults; callers override per-muscle
 }
 
-// VolumeTargets returns the weekly set-count range per muscle group for the
-// given goal type. Returns an empty map for an unrecognized goalType.
+// VolumeTargets returns a fresh copy of the weekly set-count range per muscle
+// group for the given goal type. Callers are free to mutate the returned map
+// (e.g. to apply per-muscle overrides for CUSTOM) without affecting the
+// shared package-level tables or other callers. Returns an empty, non-nil map
+// for an unrecognized goalType.
 func VolumeTargets(goalType string) map[string]Range {
-	return table[goalType]
+	src := table[goalType]
+	targets := make(map[string]Range, len(src))
+	for muscle, r := range src {
+		targets[muscle] = r
+	}
+	return targets
 }

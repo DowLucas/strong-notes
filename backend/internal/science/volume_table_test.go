@@ -29,3 +29,32 @@ func TestVolumeTargets_CoversAllMusclesForAllGoalTypes(t *testing.T) {
 		}
 	}
 }
+
+// TestVolumeTargets_CustomMutationDoesNotAliasHypertrophy proves that
+// VolumeTargets returns an independent copy each call. CUSTOM starts from the
+// same underlying values as HYPERTROPHY, so if VolumeTargets ever returned the
+// shared package-level map directly, mutating a CUSTOM override would corrupt
+// HYPERTROPHY for every other caller (and race concurrent readers).
+func TestVolumeTargets_CustomMutationDoesNotAliasHypertrophy(t *testing.T) {
+	original := VolumeTargets("HYPERTROPHY")["GLUTES"]
+
+	custom := VolumeTargets("CUSTOM")
+	custom["GLUTES"] = Range{Min: 15, Max: 25}
+
+	hypertrophyAfter := VolumeTargets("HYPERTROPHY")
+	if hypertrophyAfter["GLUTES"] != original {
+		t.Errorf("mutating CUSTOM leaked into HYPERTROPHY: got %+v, want unchanged %+v", hypertrophyAfter["GLUTES"], original)
+	}
+}
+
+// TestVolumeTargets_UnrecognizedGoalType documents and locks in the behavior
+// for an unrecognized goalType: an empty, non-nil map.
+func TestVolumeTargets_UnrecognizedGoalType(t *testing.T) {
+	targets := VolumeTargets("NOT_A_REAL_GOAL_TYPE")
+	if targets == nil {
+		t.Fatal("expected non-nil empty map for unrecognized goalType, got nil")
+	}
+	if len(targets) != 0 {
+		t.Errorf("expected empty map for unrecognized goalType, got %+v", targets)
+	}
+}
