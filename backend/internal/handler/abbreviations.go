@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -21,6 +22,31 @@ func NewAbbreviationsHandler(queries *db.Queries) *AbbreviationsHandler {
 	return &AbbreviationsHandler{queries: queries}
 }
 
+// abbreviationResponse mirrors db.Abbreviation but with camelCase JSON tags:
+// the sqlc-generated model uses db-column-style snake_case tags, which don't
+// match the mobile client's expected camelCase response shape.
+type abbreviationResponse struct {
+	ID            string  `json:"id"`
+	Token         string  `json:"token"`
+	ExerciseID    *string `json:"exerciseId"`
+	ModifierType  *string `json:"modifierType"`
+	ModifierValue *string `json:"modifierValue"`
+	Source        string  `json:"source"`
+	CreatedAt     string  `json:"createdAt"`
+}
+
+func toAbbreviationResponse(a db.Abbreviation) abbreviationResponse {
+	return abbreviationResponse{
+		ID:            a.ID,
+		Token:         a.Token,
+		ExerciseID:    a.ExerciseID,
+		ModifierType:  a.ModifierType,
+		ModifierValue: a.ModifierValue,
+		Source:        a.Source,
+		CreatedAt:     a.CreatedAt.Time.Format(time.RFC3339),
+	}
+}
+
 func (h *AbbreviationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.ClaimsFromContext(r.Context())
 	list, err := h.queries.ListAbbreviationsForUser(r.Context(), claims.UserID)
@@ -28,7 +54,11 @@ func (h *AbbreviationsHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	responses := make([]abbreviationResponse, len(list))
+	for i, a := range list {
+		responses[i] = toAbbreviationResponse(a)
+	}
+	writeJSON(w, http.StatusOK, responses)
 }
 
 type createAbbreviationRequest struct {
@@ -48,7 +78,7 @@ func (h *AbbreviationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := h.queries.GetAbbreviationByUserAndToken(r.Context(), db.GetAbbreviationByUserAndTokenParams{UserID: claims.UserID, Token: req.Token})
 	if err == nil {
-		writeJSON(w, http.StatusCreated, existing)
+		writeJSON(w, http.StatusCreated, toAbbreviationResponse(existing))
 		return
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -65,12 +95,13 @@ func (h *AbbreviationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "create failed")
 		return
 	}
-	writeJSON(w, http.StatusCreated, created)
+	writeJSON(w, http.StatusCreated, toAbbreviationResponse(created))
 }
 
 func (h *AbbreviationsHandler) Confirm(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFromContext(r.Context())
 	id := chi.URLParam(r, "id")
-	updated, err := h.queries.ConfirmAbbreviation(r.Context(), id)
+	updated, err := h.queries.ConfirmAbbreviationForUser(r.Context(), db.ConfirmAbbreviationForUserParams{ID: id, UserID: claims.UserID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "abbreviation not found")
@@ -79,5 +110,5 @@ func (h *AbbreviationsHandler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "confirm failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, updated)
+	writeJSON(w, http.StatusOK, toAbbreviationResponse(updated))
 }

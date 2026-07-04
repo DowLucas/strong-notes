@@ -13,5 +13,9 @@ RETURNING *;
 UPDATE abbreviations SET source = 'USER_ADDED' WHERE id = $1
 RETURNING *;
 
+-- name: ConfirmAbbreviationForUser :one
+UPDATE abbreviations SET source = 'USER_ADDED' WHERE id = $1 AND user_id = $2
+RETURNING *;
+
 -- name: FindAbbreviationsForTokens :many
 SELECT * FROM abbreviations WHERE user_id = $1 AND token = ANY(sqlc.arg(tokens)::text[]);

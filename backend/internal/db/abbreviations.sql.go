@@ -30,6 +30,32 @@ func (q *Queries) ConfirmAbbreviation(ctx context.Context, id string) (Abbreviat
 	return i, err
 }
 
+const confirmAbbreviationForUser = `-- name: ConfirmAbbreviationForUser :one
+UPDATE abbreviations SET source = 'USER_ADDED' WHERE id = $1 AND user_id = $2
+RETURNING id, user_id, token, exercise_id, modifier_type, modifier_value, source, created_at
+`
+
+type ConfirmAbbreviationForUserParams struct {
+	ID     string `db:"id" json:"id"`
+	UserID string `db:"user_id" json:"user_id"`
+}
+
+func (q *Queries) ConfirmAbbreviationForUser(ctx context.Context, arg ConfirmAbbreviationForUserParams) (Abbreviation, error) {
+	row := q.db.QueryRow(ctx, confirmAbbreviationForUser, arg.ID, arg.UserID)
+	var i Abbreviation
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Token,
+		&i.ExerciseID,
+		&i.ModifierType,
+		&i.ModifierValue,
+		&i.Source,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createAbbreviation = `-- name: CreateAbbreviation :one
 INSERT INTO abbreviations (id, user_id, token, exercise_id, modifier_type, modifier_value, source)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
