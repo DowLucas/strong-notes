@@ -74,6 +74,99 @@ export interface InstanceInfo {
   features: Record<string, boolean>;
 }
 
+// --- Strong Notes domain types ------------------------------------------
+
+export type MuscleGroup = 'GLUTES' | 'QUADS' | 'HAMSTRINGS' | 'CHEST' | 'BACK' | 'SHOULDERS' | 'ARMS' | 'CORE' | 'CALVES';
+export type GoalType = 'HYPERTROPHY' | 'STRENGTH' | 'ENDURANCE' | 'CUSTOM';
+export type ParsedBy = 'DICTIONARY' | 'LLM';
+
+export interface ResolvedToken {
+  token: string;
+  type: 'exercise' | 'modifier';
+  exerciseId?: string;
+  modifierType?: string;
+  modifierValue?: string;
+}
+
+export interface LlmGuess {
+  exerciseName: string;
+  equipment?: string | null;
+  weightKg?: number | null;
+  reps?: number | null;
+  sets?: number | null;
+  muscles?: MuscleGroup[];
+}
+
+export interface ResolveLineResponse {
+  resolvedTokens: ResolvedToken[];
+  unresolvedTokens: string[];
+  llmGuess?: LlmGuess;
+}
+
+export interface GoalGuess {
+  type: GoalType;
+  muscles: MuscleGroup[];
+}
+
+export interface Exercise {
+  id: string;
+  name: string;
+  category: string;
+  createdAt: string;
+}
+
+export interface Abbreviation {
+  id: string;
+  token: string;
+  exerciseId?: string;
+  modifierType?: string;
+  modifierValue?: string;
+  source: string;
+  createdAt: string;
+}
+
+export interface SetEntryInput {
+  exerciseId?: string;
+  equipment?: string;
+  weightKg?: number;
+  reps?: number;
+  sets?: number;
+  rawText: string;
+  parsedBy: ParsedBy;
+  order: number;
+}
+
+export interface SetEntryResponse extends SetEntryInput {
+  id: string;
+}
+
+export interface SessionResponse {
+  id: string;
+  date: string;
+  notes: string | null;
+  entries: SetEntryResponse[];
+}
+
+export interface GoalTarget {
+  muscle: MuscleGroup;
+  minSetsPerWeek: number;
+  maxSetsPerWeek: number;
+}
+
+export interface GoalResponse {
+  id: string;
+  type: GoalType;
+  description?: string | null;
+  targets: GoalTarget[];
+}
+
+export interface GoalProgress {
+  muscle: MuscleGroup;
+  targetMin: number;
+  targetMax: number;
+  actualSets: number;
+}
+
 export type GetToken = () => Promise<string | null>;
 
 export interface ApiClient {
@@ -86,6 +179,16 @@ export interface ApiClient {
   uploadAvatar(imageBase64: string, mimeType: AvatarMimeType): Promise<AvatarUploadResponse>;
   deleteAvatar(): Promise<void>;
   getInstanceInfo(): Promise<InstanceInfo>;
+  resolveLine(line: string): Promise<ResolveLineResponse>;
+  resolveGoal(text: string): Promise<GoalGuess>;
+  createExercise(input: { name: string; muscles: MuscleGroup[] }): Promise<Exercise>;
+  listAbbreviations(): Promise<Abbreviation[]>;
+  createAbbreviation(input: { token: string; exerciseId?: string; modifierType?: string; modifierValue?: string }): Promise<Abbreviation>;
+  confirmAbbreviation(id: string): Promise<Abbreviation>;
+  putSession(date: string, body: { notes?: string | null; entries: SetEntryInput[] }): Promise<SessionResponse>;
+  getSessions(from: string, to: string): Promise<SessionResponse[]>;
+  createGoal(input: { type: GoalType; description?: string; overrides?: { muscle: MuscleGroup; min: number; max: number }[] }): Promise<GoalResponse>;
+  getGoalProgress(weekStart: string): Promise<GoalProgress[]>;
   /** Build an authenticated `<Image source>` for the user's server avatar. */
   avatarImageSource(user: User | null, token: string | null): { uri: string; headers?: Record<string, string> } | null;
 }
@@ -162,6 +265,33 @@ export function createClient(baseUrl: string, getToken: GetToken): ApiClient {
 
     getInstanceInfo: () =>
       request<InstanceInfo>('/.well-known/scaffold-instance'),
+
+    resolveLine: (line) =>
+      request<ResolveLineResponse>('/api/resolve/line', { method: 'POST', body: JSON.stringify({ line }) }),
+
+    resolveGoal: (text) =>
+      request<GoalGuess>('/api/resolve/goal', { method: 'POST', body: JSON.stringify({ text }) }),
+
+    createExercise: (input) =>
+      request<Exercise>('/api/exercises', { method: 'POST', body: JSON.stringify(input) }),
+
+    listAbbreviations: () => request<Abbreviation[]>('/api/abbreviations'),
+
+    createAbbreviation: (input) =>
+      request<Abbreviation>('/api/abbreviations', { method: 'POST', body: JSON.stringify(input) }),
+
+    confirmAbbreviation: (id) =>
+      request<Abbreviation>(`/api/abbreviations/${id}/confirm`, { method: 'PATCH' }),
+
+    putSession: (date, body) =>
+      request<SessionResponse>(`/api/sessions/${date}`, { method: 'PUT', body: JSON.stringify(body) }),
+
+    getSessions: (from, to) => request<SessionResponse[]>(`/api/sessions?from=${from}&to=${to}`),
+
+    createGoal: (input) =>
+      request<GoalResponse>('/api/goals', { method: 'POST', body: JSON.stringify(input) }),
+
+    getGoalProgress: (weekStart) => request<GoalProgress[]>(`/api/goals/active/progress?weekStart=${weekStart}`),
 
     // Security: only server-relative avatar paths get the Authorization
     // header. An absolute URL would otherwise leak the bearer token to an
