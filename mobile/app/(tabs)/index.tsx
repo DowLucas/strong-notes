@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, FlatList, StyleSheet } from 'react-native';
 import { parseQuickEntryLine, type ParsedLine } from '../../src/parsing/quickEntry';
 import { upsertLocalSession, getLocalSession } from '../../src/db/sessionsRepo';
@@ -44,6 +44,38 @@ export default function LogScreen() {
   // so writes always happen one at a time, in the order their submissions
   // resolved.
   const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  // Today's already-logged entries live in SQLite (and the backend) the
+  // moment they're submitted, but `lines`/`linesRef` start empty on every
+  // mount - without this, switching tabs and back (or reopening the app)
+  // shows a blank Log screen even though today's sets are already saved.
+  useEffect(() => {
+    (async () => {
+      try {
+        const existing = await getLocalSession(todayDate());
+        if (!existing) return;
+        const restored: UiLine[] = existing.entries.map((e) => ({
+          id: e.id,
+          rawText: e.rawText,
+          // Persisted entries never carry a live ParsedLine status; treat an
+          // entry with a linked exercise as resolved, everything else as
+          // still-pending so it's visually distinguishable from a fully
+          // parsed line rather than silently misrepresented as resolved.
+          status: e.exerciseId ? 'resolved' : 'pending',
+          parsedBy: e.parsedBy,
+          exerciseId: e.exerciseId ?? undefined,
+          equipment: e.equipment ?? undefined,
+          weightKg: e.weightKg ?? undefined,
+          reps: e.reps ?? undefined,
+          sets: e.sets ?? undefined,
+        }));
+        linesRef.current = restored;
+        setLines(restored);
+      } catch {
+        setError(ERROR_MESSAGE);
+      }
+    })();
+  }, []);
 
   async function persistLines(allLines: UiLine[]): Promise<void> {
     const date = todayDate();

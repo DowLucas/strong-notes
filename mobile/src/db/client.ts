@@ -46,4 +46,13 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
 
 export function resetDbForTests() {
   dbPromise = null;
+  // Under Jest, `expo-sqlite` resolves to test-shims/expo-sqlite.js (see
+  // jest.config.js's moduleNameMapper), which keeps its in-memory databases
+  // in a registry keyed by filename so repeated openDatabaseAsync() calls
+  // reconnect to the same data - mirroring a real persisted file. That means
+  // nulling `dbPromise` alone doesn't actually clear stored rows between
+  // tests; without this, one test's data can leak into another's. The real
+  // expo-sqlite module has no such export, so this is a no-op in production.
+  const maybeShim = SQLite as unknown as { __resetAllForTests?: () => void };
+  maybeShim.__resetAllForTests?.();
 }
