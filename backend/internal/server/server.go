@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/DowLucas/strong-notes-backend/internal/db"
 	"github.com/DowLucas/strong-notes-backend/internal/email"
 	"github.com/DowLucas/strong-notes-backend/internal/handler"
+	"github.com/DowLucas/strong-notes-backend/internal/llm"
 	"github.com/DowLucas/strong-notes-backend/internal/middleware"
 	"github.com/DowLucas/strong-notes-backend/internal/storage"
 	"github.com/DowLucas/strong-notes-backend/internal/wellknown"
@@ -68,6 +70,26 @@ func New(cfg *config.Config, pool *pgxpool.Pool, queries *db.Queries, jwtSvc *au
 		r.Patch("/api/me", authH.UpdateMe)
 		r.Delete("/api/me", authH.DeleteMe)
 		r.Post("/api/me/logout", authH.Logout)
+
+		llmProvider, err := llm.NewProvider(cfg)
+		if err != nil {
+			panic(fmt.Sprintf("llm.NewProvider: %v", err)) // fail fast at startup, not per-request
+		}
+		resolveH := handler.NewResolveHandler(queries, llmProvider)
+		r.Post("/api/resolve/line", resolveH.ResolveLine)
+		r.Post("/api/resolve/goal", resolveH.ResolveGoal)
+
+		exercisesH := handler.NewExercisesHandler(queries)
+		r.Post("/api/exercises", exercisesH.Create)
+
+		abbreviationsH := handler.NewAbbreviationsHandler(queries)
+		r.Get("/api/abbreviations", abbreviationsH.List)
+		r.Post("/api/abbreviations", abbreviationsH.Create)
+		r.Patch("/api/abbreviations/{id}/confirm", abbreviationsH.Confirm)
+
+		sessionsH := handler.NewSessionsHandler(pool, queries)
+		r.Get("/api/sessions", sessionsH.Get)
+		r.Put("/api/sessions/{date}", sessionsH.Put)
 
 		// Avatar routes only mount when object storage is configured.
 		// Without it, the upload endpoint would 500 on every call; better to

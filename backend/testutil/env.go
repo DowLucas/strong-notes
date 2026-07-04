@@ -45,6 +45,13 @@ func NewEnv(t *testing.T) *Env {
 		JWTSecret:    testJWTSecret,
 		BaseURL:      "http://localhost:8080",
 		S3Bucket:     "scaffold",
+		// server.New constructs an LLM provider unconditionally (fail-fast
+		// at startup); construction itself is network-free, but it does
+		// require a recognized provider name, matching config.Load()'s real
+		// default so tests exercise the same server wiring production does.
+		LLMProvider: "ollama",
+		OllamaURL:   "http://localhost:11434",
+		OllamaModel: "gemma2:2b",
 	}
 
 	return &Env{
