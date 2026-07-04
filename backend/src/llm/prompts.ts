@@ -1,0 +1,9 @@
+export const LINE_PROMPT = (line: string, unresolved: string[]) => `You are a gym-log parser. Given this logged line: "${line}"
+The unrecognized tokens are: ${unresolved.join(', ')}.
+Shorthand convention: a token like "8x3" means 8 reps per set, done for 3 sets - the first number is reps, the second is sets.
+Expand any abbreviated or shorthand exercise name into its full common name (e.g. "crabwalk" -> "Crab Walk", "OHP" -> "Overhead Press") rather than echoing the raw token back.
+Respond ONLY with JSON: {"exerciseName": string, "equipment": string|null, "weightKg": number|null, "reps": number|null, "sets": number|null}`;
+
+export const GOAL_PROMPT = (text: string) => `You are a fitness goal classifier. Given this goal description: "${text}"
+Respond ONLY with JSON: {"type": "HYPERTROPHY"|"STRENGTH"|"ENDURANCE"|"CUSTOM", "muscles": string[]} where muscles are from
+["GLUTES","QUADS","HAMSTRINGS","CHEST","BACK","SHOULDERS","ARMS","CORE","CALVES"].`;
