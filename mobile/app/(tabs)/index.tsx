@@ -54,7 +54,7 @@ export default function LogScreen() {
       synced: 0,
       entries: allLines.map((l, i) => ({
         id: l.id,
-        exerciseId: null,
+        exerciseId: l.exerciseId ?? null,
         equipment: l.equipment ?? null,
         weightKg: l.weightKg ?? null,
         reps: l.reps ?? null,
