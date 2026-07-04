@@ -8,7 +8,7 @@ export const exercisesRouter = Router();
 
 const createSchema = z.object({
   name: z.string().min(1),
-  muscles: z.array(z.nativeEnum(MuscleGroup)).min(1),
+  muscles: z.array(z.nativeEnum(MuscleGroup)),
 });
 
 exercisesRouter.post(

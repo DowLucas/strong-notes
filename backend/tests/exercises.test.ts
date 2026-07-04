@@ -59,13 +59,21 @@ describe('POST /exercises', () => {
     expect(rows).toHaveLength(1);
   });
 
-  it('rejects an empty muscles array with 400', async () => {
+  it('accepts an empty muscles array and creates an exercise with no muscleMap entries', async () => {
     const app = createApp();
     const res = await request(app)
       .post('/exercises')
       .set('Authorization', 'Bearer test-token')
       .send({ name: 'Test No Muscles', muscles: [] });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(201);
+    expect(res.body.name).toBe('Test No Muscles');
+
+    const row = await prisma.exercise.findUnique({
+      where: { name: 'Test No Muscles' },
+      include: { muscleMap: true },
+    });
+    expect(row).not.toBeNull();
+    expect(row!.muscleMap).toHaveLength(0);
   });
 
   it('rejects an empty name with 400', async () => {

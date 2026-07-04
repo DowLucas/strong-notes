@@ -27,6 +27,11 @@ abbreviationsRouter.post(
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+    const existing = await prisma.abbreviation.findUnique({
+      where: { userId_token: { userId: 'lucas', token: parsed.data.token } },
+    });
+    if (existing) return res.status(201).json(existing);
+
     const created = await prisma.abbreviation.create({
       data: { userId: 'lucas', source: AbbreviationSource.USER_ADDED, ...parsed.data },
     });
