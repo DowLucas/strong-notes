@@ -3,3 +3,4 @@ build-errors.log
 .env
 .env.local
 bin/
+.pgdata/
