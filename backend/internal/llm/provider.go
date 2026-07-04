@@ -33,6 +33,9 @@ func NewProvider(cfg *config.Config) (Provider, error) {
 	case "ollama":
 		return &OllamaProvider{BaseURL: cfg.OllamaURL, Model: cfg.OllamaModel}, nil
 	case "anthropic":
+		if cfg.AnthropicAPIKey == "" {
+			return nil, fmt.Errorf("llm: ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic")
+		}
 		return NewAnthropicProvider(cfg.AnthropicAPIKey), nil
 	default:
 		return nil, fmt.Errorf("llm: unknown LLM_PROVIDER %q", cfg.LLMProvider)

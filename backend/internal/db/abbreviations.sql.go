@@ -9,27 +9,6 @@ import (
 	"context"
 )
 
-const confirmAbbreviation = `-- name: ConfirmAbbreviation :one
-UPDATE abbreviations SET source = 'USER_ADDED' WHERE id = $1
-RETURNING id, user_id, token, exercise_id, modifier_type, modifier_value, source, created_at
-`
-
-func (q *Queries) ConfirmAbbreviation(ctx context.Context, id string) (Abbreviation, error) {
-	row := q.db.QueryRow(ctx, confirmAbbreviation, id)
-	var i Abbreviation
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.Token,
-		&i.ExerciseID,
-		&i.ModifierType,
-		&i.ModifierValue,
-		&i.Source,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const confirmAbbreviationForUser = `-- name: ConfirmAbbreviationForUser :one
 UPDATE abbreviations SET source = 'USER_ADDED' WHERE id = $1 AND user_id = $2
 RETURNING id, user_id, token, exercise_id, modifier_type, modifier_value, source, created_at

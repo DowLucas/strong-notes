@@ -57,6 +57,30 @@ func (q *Queries) CreateMuscleMapEntry(ctx context.Context, arg CreateMuscleMapE
 	return err
 }
 
+const findExistingExerciseIDs = `-- name: FindExistingExerciseIDs :many
+SELECT id FROM exercises WHERE id = ANY($1::text[])
+`
+
+func (q *Queries) FindExistingExerciseIDs(ctx context.Context, ids []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, findExistingExerciseIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getExerciseByName = `-- name: GetExerciseByName :one
 SELECT id, name, category, created_at FROM exercises WHERE name = $1
 `

@@ -105,9 +105,18 @@ func (h *ExercisesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, m := range muscles {
+	// The LLM only provides a flat, unordered-in-meaning muscle list with no
+	// explicit primary/secondary signal. As a simple, defensible heuristic we
+	// treat the first muscle in the deduped list as the PRIMARY mover (full
+	// weight) and every subsequent muscle as a SECONDARY contributor (half
+	// weight) for volume-tracking purposes.
+	for i, m := range muscles {
+		role, weight := "SECONDARY", float32(0.5)
+		if i == 0 {
+			role, weight = "PRIMARY", 1.0
+		}
 		if err := h.queries.CreateMuscleMapEntry(r.Context(), db.CreateMuscleMapEntryParams{
-			ID: ulid.New(), ExerciseID: created.ID, Muscle: m, Role: "PRIMARY", Weight: 1,
+			ID: ulid.New(), ExerciseID: created.ID, Muscle: m, Role: role, Weight: weight,
 		}); err != nil {
 			writeError(w, http.StatusInternalServerError, "muscle map create failed")
 			return

@@ -14,11 +14,11 @@ import (
 var numericToken = regexp.MustCompile(`(?i)^\d+(\.\d+)?(kg|lb)?$|^\d+x\d+$`)
 
 type ResolvedToken struct {
-	Token         string
-	Type          string // "exercise" | "modifier"
-	ExerciseID    *string
-	ModifierType  *string
-	ModifierValue *string
+	Token         string  `json:"token"`
+	Type          string  `json:"type"` // "exercise" | "modifier"
+	ExerciseID    *string `json:"exerciseId,omitempty"`
+	ModifierType  *string `json:"modifierType,omitempty"`
+	ModifierValue *string `json:"modifierValue,omitempty"`
 }
 
 type DictionaryResolution struct {

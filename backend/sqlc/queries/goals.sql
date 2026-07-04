@@ -20,7 +20,8 @@ SELECT * FROM goal_targets WHERE goal_id = $1;
 SELECT
   set_entries.exercise_id,
   set_entries.sets,
-  muscle_map_entries.muscle
+  muscle_map_entries.muscle,
+  muscle_map_entries.weight
 FROM workout_sessions
 JOIN set_entries ON set_entries.session_id = workout_sessions.id
 JOIN muscle_map_entries ON muscle_map_entries.exercise_id = set_entries.exercise_id

@@ -26,6 +26,17 @@ func TestNewProvider_Anthropic(t *testing.T) {
 	}
 }
 
+// TestNewProvider_AnthropicMissingAPIKey is a regression test proving
+// NewProvider fails fast at construction time when LLM_PROVIDER=anthropic
+// but ANTHROPIC_API_KEY is empty, instead of booting a doomed client whose
+// first real call fails with an opaque error.
+func TestNewProvider_AnthropicMissingAPIKey(t *testing.T) {
+	_, err := NewProvider(&config.Config{LLMProvider: "anthropic", AnthropicAPIKey: ""})
+	if err == nil {
+		t.Fatal("expected an error when ANTHROPIC_API_KEY is empty, got nil")
+	}
+}
+
 func TestNewProvider_Unknown(t *testing.T) {
 	_, err := NewProvider(&config.Config{LLMProvider: "bogus"})
 	if err == nil {

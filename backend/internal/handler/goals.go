@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"time"
 
@@ -33,6 +34,17 @@ type createGoalRequest struct {
 	Type        string         `json:"type"`
 	Description *string        `json:"description"`
 	Overrides   []goalOverride `json:"overrides"`
+}
+
+// validGoalTypes mirrors the goals.type CHECK constraint in the DB schema.
+// Validating here lets an unrecognized type surface as a 400 instead of
+// falling through to science.VolumeTargets (which returns an empty map for
+// unknown types) and failing as an opaque 500 on the DB constraint.
+var validGoalTypes = map[string]bool{
+	"HYPERTROPHY": true,
+	"STRENGTH":    true,
+	"ENDURANCE":   true,
+	"CUSTOM":      true,
 }
 
 // goalTargetResponse mirrors db.GoalTarget but with camelCase JSON tags: the
@@ -70,6 +82,10 @@ func (h *GoalsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req createGoalRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Type == "" {
 		writeError(w, http.StatusBadRequest, "type is required")
+		return
+	}
+	if !validGoalTypes[req.Type] {
+		writeError(w, http.StatusBadRequest, "type must be one of HYPERTROPHY, STRENGTH, ENDURANCE, CUSTOM")
 		return
 	}
 	claims := middleware.ClaimsFromContext(r.Context())
@@ -188,12 +204,16 @@ func (h *GoalsHandler) GetActiveProgress(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "aggregate failed")
 		return
 	}
-	actualByMuscle := make(map[string]int32)
+	// Sets are weighted by each muscle's contribution to the exercise (e.g. a
+	// SECONDARY mover at weight 0.5 counts half as much as the PRIMARY mover)
+	// so a muscle only lightly worked by an exercise doesn't get full credit
+	// toward its weekly volume target.
+	actualByMuscle := make(map[string]float64)
 	for _, row := range rows {
 		if row.Sets == nil {
 			continue
 		}
-		actualByMuscle[row.Muscle] += *row.Sets
+		actualByMuscle[row.Muscle] += float64(*row.Sets) * float64(row.Weight)
 	}
 
 	progress := make([]goalProgressEntry, 0, len(targets))
@@ -202,7 +222,7 @@ func (h *GoalsHandler) GetActiveProgress(w http.ResponseWriter, r *http.Request)
 			Muscle:     target.Muscle,
 			TargetMin:  target.MinSetsPerWeek,
 			TargetMax:  target.MaxSetsPerWeek,
-			ActualSets: actualByMuscle[target.Muscle],
+			ActualSets: int32(math.Round(actualByMuscle[target.Muscle])),
 		})
 	}
 	writeJSON(w, http.StatusOK, progress)

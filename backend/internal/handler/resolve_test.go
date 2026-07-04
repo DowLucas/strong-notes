@@ -84,6 +84,98 @@ func TestResolveLine_DictionaryOnly(t *testing.T) {
 	}
 }
 
+// TestResolveLine_ResolvedTokensUseCamelCase is a regression test for the
+// PascalCase JSON leak on parsing.ResolvedToken: the mobile client expects
+// camelCase keys (token, type, exerciseId, modifierType, modifierValue) in
+// resolvedTokens, not Go's default PascalCase field names.
+func TestResolveLine_ResolvedTokensUseCamelCase(t *testing.T) {
+	pool := testutil.SharedDB(t)
+	q := db.New(pool)
+	ctx := context.Background()
+	userID := ulid.New()
+	testutil.InsertTestUser(t, pool, userID, "resolve-test-camelcase@example.com")
+
+	equipment := "equipment"
+	barbell := "barbell"
+	_, err := q.CreateAbbreviation(ctx, db.CreateAbbreviationParams{
+		ID: ulid.New(), UserID: userID, Token: "BB", ModifierType: &equipment, ModifierValue: &barbell, Source: "BUILT_IN",
+	})
+	if err != nil {
+		t.Fatalf("CreateAbbreviation: %v", err)
+	}
+
+	exercisesH := NewExercisesHandler(q)
+	exW := httptest.NewRecorder()
+	exercisesH.Create(exW, httptest.NewRequest(http.MethodPost, "/api/exercises", strings.NewReader(`{"name":"Test Camel Case Squat","muscles":["QUADS"]}`)))
+	var exercise struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(exW.Body.Bytes(), &exercise)
+	_, err = q.CreateAbbreviation(ctx, db.CreateAbbreviationParams{
+		ID: ulid.New(), UserID: userID, Token: "SQ", ExerciseID: &exercise.ID, Source: "BUILT_IN",
+	})
+	if err != nil {
+		t.Fatalf("CreateAbbreviation (exercise): %v", err)
+	}
+
+	h := NewResolveHandler(q, &fakeProvider{})
+	body := strings.NewReader(`{"line":"SQ BB 40kg 8x3"}`)
+	req := withClaims(httptest.NewRequest(http.MethodPost, "/api/resolve/line", body), userID)
+	w := httptest.NewRecorder()
+
+	h.ResolveLine(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	resolvedTokens, ok := raw["resolvedTokens"].([]any)
+	if !ok || len(resolvedTokens) != 2 {
+		t.Fatalf("expected 2 resolvedTokens entries, got %+v", raw["resolvedTokens"])
+	}
+
+	var exerciseToken, modifierToken map[string]any
+	for _, rt := range resolvedTokens {
+		m := rt.(map[string]any)
+		if m["type"] == "exercise" {
+			exerciseToken = m
+		} else if m["type"] == "modifier" {
+			modifierToken = m
+		}
+	}
+	if exerciseToken == nil {
+		t.Fatalf("expected an exercise-type resolved token, got %+v", resolvedTokens)
+	}
+	if _, ok := exerciseToken["exerciseId"]; !ok {
+		t.Errorf("expected camelCase \"exerciseId\" key on exercise token, got %+v", exerciseToken)
+	}
+	if _, ok := exerciseToken["ExerciseID"]; ok {
+		t.Errorf("expected no PascalCase \"ExerciseID\" key, got %+v", exerciseToken)
+	}
+
+	if modifierToken == nil {
+		t.Fatalf("expected a modifier-type resolved token, got %+v", resolvedTokens)
+	}
+	if _, ok := modifierToken["modifierType"]; !ok {
+		t.Errorf("expected camelCase \"modifierType\" key on modifier token, got %+v", modifierToken)
+	}
+	if _, ok := modifierToken["ModifierType"]; ok {
+		t.Errorf("expected no PascalCase \"ModifierType\" key, got %+v", modifierToken)
+	}
+
+	respBody := w.Body.String()
+	if !strings.Contains(respBody, `"resolvedTokens":[{"token":`) {
+		t.Errorf("expected resolvedTokens to start with camelCase \"token\" key, got %s", respBody)
+	}
+	if strings.Contains(respBody, `"ExerciseID"`) || strings.Contains(respBody, `"ModifierType"`) || strings.Contains(respBody, `"ModifierValue"`) {
+		t.Errorf("expected no PascalCase keys in response, got %s", respBody)
+	}
+}
+
 func TestResolveLine_LLMFallback(t *testing.T) {
 	pool := testutil.SharedDB(t)
 	q := db.New(pool)

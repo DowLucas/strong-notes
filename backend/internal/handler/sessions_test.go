@@ -49,6 +49,30 @@ func TestSessions_UpsertReplacesEntries(t *testing.T) {
 	}
 }
 
+// TestSessions_Put_RejectsUnknownExerciseId is a regression test proving a
+// bogus exerciseId is rejected with a 400 before it ever reaches the
+// set_entries.exercise_id foreign key (which previously surfaced as a
+// generic 500 mid-transaction).
+func TestSessions_Put_RejectsUnknownExerciseId(t *testing.T) {
+	pool := testutil.SharedDB(t)
+	q := db.New(pool)
+	userID := ulid.New()
+	testutil.InsertTestUser(t, pool, userID, "sessions-bogus-exercise-test@example.com")
+	h := NewSessionsHandler(pool, q)
+
+	router := chi.NewRouter()
+	router.Put("/api/sessions/{date}", h.Put)
+
+	body := `{"entries":[{"exerciseId":"` + ulid.New() + `","sets":4,"rawText":"bogus","parsedBy":"DICTIONARY","order":0}]}`
+	req := withClaims(httptest.NewRequest(http.MethodPut, "/api/sessions/2026-07-04", strings.NewReader(body)), userID)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown exerciseId, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestSessions_Get_ReturnsSessionsInRange(t *testing.T) {
 	pool := testutil.SharedDB(t)
 	q := db.New(pool)

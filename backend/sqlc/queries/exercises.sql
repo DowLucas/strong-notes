@@ -12,3 +12,6 @@ VALUES ($1, $2, $3, $4, $5);
 
 -- name: GetMuscleMapForExercise :many
 SELECT * FROM muscle_map_entries WHERE exercise_id = $1;
+
+-- name: FindExistingExerciseIDs :many
+SELECT id FROM exercises WHERE id = ANY(sqlc.arg(ids)::text[]);

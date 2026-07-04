@@ -104,6 +104,82 @@ func TestGoals_ActiveProgress_ComputesActualSets(t *testing.T) {
 	}
 }
 
+// TestGoals_ActiveProgress_WeightsSecondaryMuscles is a regression test
+// proving actualSets is computed as sets * muscle weight, not raw sets: an
+// exercise with a PRIMARY (weight 1.0) and SECONDARY (weight 0.5) muscle,
+// logged with 4 sets, should show actualSets 4 for the PRIMARY muscle and
+// actualSets 2 (4 * 0.5, rounded) for the SECONDARY muscle.
+func TestGoals_ActiveProgress_WeightsSecondaryMuscles(t *testing.T) {
+	pool := testutil.SharedDB(t)
+	q := db.New(pool)
+	userID := ulid.New()
+	testutil.InsertTestUser(t, pool, userID, "goals-weighted-progress-test@example.com")
+	h := NewGoalsHandler(pool, q)
+
+	createReq := withClaims(httptest.NewRequest(http.MethodPost, "/api/goals", strings.NewReader(`{"type":"HYPERTROPHY"}`)), userID)
+	h.Create(httptest.NewRecorder(), createReq)
+
+	// QUADS is the first (PRIMARY, weight 1.0) muscle, GLUTES is the second
+	// (SECONDARY, weight 0.5) muscle per exercises.Create's position-based rule.
+	exercisesH := NewExercisesHandler(q)
+	exW := httptest.NewRecorder()
+	exercisesH.Create(exW, httptest.NewRequest(http.MethodPost, "/api/exercises", strings.NewReader(`{"name":"Test Weighted Lunge For Goals","muscles":["QUADS","GLUTES"]}`)))
+	var exercise struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(exW.Body.Bytes(), &exercise)
+
+	sessionsH := NewSessionsHandler(pool, q)
+	putRouter := chi.NewRouter()
+	putRouter.Put("/api/sessions/{date}", sessionsH.Put)
+	putBody := `{"entries":[{"exerciseId":"` + exercise.ID + `","sets":4,"rawText":"Lunge 40kg 8x4","parsedBy":"DICTIONARY","order":0}]}`
+	putReq := withClaims(httptest.NewRequest(http.MethodPut, "/api/sessions/2026-07-06", strings.NewReader(putBody)), userID)
+	putW := httptest.NewRecorder()
+	putRouter.ServeHTTP(putW, putReq)
+	if putW.Code != http.StatusOK {
+		t.Fatalf("setup PUT: expected 200, got %d: %s", putW.Code, putW.Body.String())
+	}
+
+	progressReq := withClaims(httptest.NewRequest(http.MethodGet, "/api/goals/active/progress?weekStart=2026-07-06", nil), userID)
+	progressW := httptest.NewRecorder()
+	h.GetActiveProgress(progressW, progressReq)
+
+	var progress []struct {
+		Muscle     string `json:"muscle"`
+		ActualSets int    `json:"actualSets"`
+	}
+	json.Unmarshal(progressW.Body.Bytes(), &progress)
+	byMuscle := make(map[string]int, len(progress))
+	for _, p := range progress {
+		byMuscle[p.Muscle] = p.ActualSets
+	}
+	if got, ok := byMuscle["QUADS"]; !ok || got != 4 {
+		t.Errorf("expected QUADS (PRIMARY, weight 1.0) actualSets 4, got %d (found=%v)", got, ok)
+	}
+	if got, ok := byMuscle["GLUTES"]; !ok || got != 2 {
+		t.Errorf("expected GLUTES (SECONDARY, weight 0.5) actualSets 2, got %d (found=%v)", got, ok)
+	}
+}
+
+// TestGoals_Create_InvalidTypeReturns400 is a regression test proving an
+// unrecognized goal type is rejected with a 400 before it ever reaches the
+// DB's CHECK constraint (which previously surfaced as an opaque 500).
+func TestGoals_Create_InvalidTypeReturns400(t *testing.T) {
+	pool := testutil.SharedDB(t)
+	q := db.New(pool)
+	userID := ulid.New()
+	testutil.InsertTestUser(t, pool, userID, "goals-invalid-type-test@example.com")
+	h := NewGoalsHandler(pool, q)
+
+	req := withClaims(httptest.NewRequest(http.MethodPost, "/api/goals", strings.NewReader(`{"type":"NOT_A_REAL_TYPE"}`)), userID)
+	w := httptest.NewRecorder()
+	h.Create(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid type, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestGoals_GetActive_ReturnsCamelCaseTargets(t *testing.T) {
 	pool := testutil.SharedDB(t)
 	q := db.New(pool)

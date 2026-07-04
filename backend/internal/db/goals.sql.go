@@ -128,7 +128,8 @@ const getSessionsWithEntriesInWeek = `-- name: GetSessionsWithEntriesInWeek :man
 SELECT
   set_entries.exercise_id,
   set_entries.sets,
-  muscle_map_entries.muscle
+  muscle_map_entries.muscle,
+  muscle_map_entries.weight
 FROM workout_sessions
 JOIN set_entries ON set_entries.session_id = workout_sessions.id
 JOIN muscle_map_entries ON muscle_map_entries.exercise_id = set_entries.exercise_id
@@ -148,6 +149,7 @@ type GetSessionsWithEntriesInWeekRow struct {
 	ExerciseID *string `db:"exercise_id" json:"exercise_id"`
 	Sets       *int32  `db:"sets" json:"sets"`
 	Muscle     string  `db:"muscle" json:"muscle"`
+	Weight     float32 `db:"weight" json:"weight"`
 }
 
 func (q *Queries) GetSessionsWithEntriesInWeek(ctx context.Context, arg GetSessionsWithEntriesInWeekParams) ([]GetSessionsWithEntriesInWeekRow, error) {
@@ -159,7 +161,12 @@ func (q *Queries) GetSessionsWithEntriesInWeek(ctx context.Context, arg GetSessi
 	items := []GetSessionsWithEntriesInWeekRow{}
 	for rows.Next() {
 		var i GetSessionsWithEntriesInWeekRow
-		if err := rows.Scan(&i.ExerciseID, &i.Sets, &i.Muscle); err != nil {
+		if err := rows.Scan(
+			&i.ExerciseID,
+			&i.Sets,
+			&i.Muscle,
+			&i.Weight,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

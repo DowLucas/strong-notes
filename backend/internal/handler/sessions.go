@@ -42,16 +42,27 @@ func (h *SessionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch every session's entries in a single batched query instead of one
+	// query per session (N+1), then group the flat list by session in Go.
+	entries, err := h.queries.ListSetEntriesForSessionsInRange(r.Context(), db.ListSetEntriesForSessionsInRangeParams{
+		UserID: claims.UserID,
+		Date:   pgtype.Date{Time: from, Valid: true},
+		Date_2: pgtype.Date{Time: to, Valid: true},
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "fetch entries failed")
+		return
+	}
+	entriesBySession := make(map[string][]setEntryResponse, len(sessions))
+	for _, e := range entries {
+		entriesBySession[e.SessionID] = append(entriesBySession[e.SessionID], toSetEntryResponse(e))
+	}
+
 	responses := make([]map[string]any, len(sessions))
 	for i, session := range sessions {
-		entries, err := h.queries.GetSetEntriesForSession(r.Context(), session.ID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "fetch entries failed")
-			return
-		}
-		entryResponses := make([]setEntryResponse, len(entries))
-		for j, e := range entries {
-			entryResponses[j] = toSetEntryResponse(e)
+		entryResponses := entriesBySession[session.ID]
+		if entryResponses == nil {
+			entryResponses = []setEntryResponse{}
 		}
 		responses[i] = map[string]any{
 			"id":      session.ID,
@@ -122,6 +133,36 @@ func (h *SessionsHandler) Put(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
+	}
+
+	// Validate every referenced exerciseId exists up front so a bogus id
+	// fails fast with a 400 instead of tripping the set_entries.exercise_id
+	// foreign key mid-transaction and surfacing as a generic 500.
+	seenExerciseIDs := make(map[string]bool, len(req.Entries))
+	requestedExerciseIDs := make([]string, 0, len(req.Entries))
+	for _, e := range req.Entries {
+		if e.ExerciseID == nil || seenExerciseIDs[*e.ExerciseID] {
+			continue
+		}
+		seenExerciseIDs[*e.ExerciseID] = true
+		requestedExerciseIDs = append(requestedExerciseIDs, *e.ExerciseID)
+	}
+	if len(requestedExerciseIDs) > 0 {
+		existingIDs, err := h.queries.FindExistingExerciseIDs(r.Context(), requestedExerciseIDs)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "exercise lookup failed")
+			return
+		}
+		existing := make(map[string]bool, len(existingIDs))
+		for _, id := range existingIDs {
+			existing[id] = true
+		}
+		for _, id := range requestedExerciseIDs {
+			if !existing[id] {
+				writeError(w, http.StatusBadRequest, "unknown exerciseId: "+id)
+				return
+			}
+		}
 	}
 
 	tx, err := h.pool.Begin(r.Context())

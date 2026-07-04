@@ -9,10 +9,6 @@ INSERT INTO abbreviations (id, user_id, token, exercise_id, modifier_type, modif
 VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
--- name: ConfirmAbbreviation :one
-UPDATE abbreviations SET source = 'USER_ADDED' WHERE id = $1
-RETURNING *;
-
 -- name: ConfirmAbbreviationForUser :one
 UPDATE abbreviations SET source = 'USER_ADDED' WHERE id = $1 AND user_id = $2
 RETURNING *;
