@@ -1,0 +1,25 @@
+# backend/docker-compose.yml
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://strongnotes:${POSTGRES_PASSWORD}@postgres:5432/strongnotes
+      API_TOKEN: ${API_TOKEN}
+      LLM_PROVIDER: anthropic
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    networks: [caddy-net]
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: strongnotes
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: strongnotes
+    volumes:
+      - /tank/apps/strong-notes/pgdata:/var/lib/postgresql/data
+    networks: [caddy-net]
+
+networks:
+  caddy-net:
+    external: true
