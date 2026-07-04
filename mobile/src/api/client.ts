@@ -46,7 +46,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 // used only to compute a sensible "emphasis" bump for free-text goals that
 // call out specific muscles (e.g. "I want a bigger booty" -> GLUTES). If the
 // backend's defaults change, update this table to match.
-const VOLUME_DEFAULTS: Record<GoalType, Record<MuscleGroup, { min: number; max: number }>> = {
+export const VOLUME_DEFAULTS: Record<GoalType, Record<MuscleGroup, { min: number; max: number }>> = {
   HYPERTROPHY: {
     GLUTES: { min: 12, max: 20 },
     QUADS: { min: 10, max: 18 },
