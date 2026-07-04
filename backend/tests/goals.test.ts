@@ -54,4 +54,20 @@ describe('/goals', () => {
     const glutes = res.body.find((p: { muscle: string }) => p.muscle === 'GLUTES');
     expect(glutes.actualSets).toBe(4);
   });
+
+  it('rejects /goals/active/progress with missing or malformed weekStart', async () => {
+    const app = createApp();
+    const auth = { Authorization: 'Bearer test-token' };
+    await request(app).post('/goals').set(auth).send({ type: 'HYPERTROPHY' });
+
+    const missing = await request(app).get('/goals/active/progress').set(auth);
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toBeDefined();
+
+    const malformed = await request(app)
+      .get('/goals/active/progress?weekStart=07-06-2026')
+      .set(auth);
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.error).toBeDefined();
+  });
 });

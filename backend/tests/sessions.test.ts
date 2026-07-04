@@ -52,4 +52,36 @@ describe('/sessions', () => {
     expect(secondPut.body.entries).toHaveLength(1);
     expect(secondPut.body.entries[0].rawText).toBe('second');
   });
+
+  it('clears notes on resync when notes is omitted from the body', async () => {
+    const app = createApp();
+    const auth = { Authorization: 'Bearer test-token' };
+
+    const firstPut = await request(app).put('/sessions/2026-07-01').set(auth).send({
+      notes: 'leg day',
+      entries: [{ rawText: 'first', parsedBy: 'DICTIONARY', order: 0 }],
+    });
+    expect(firstPut.body.notes).toBe('leg day');
+
+    const secondPut = await request(app).put('/sessions/2026-07-01').set(auth).send({
+      entries: [{ rawText: 'first', parsedBy: 'DICTIONARY', order: 0 }],
+    });
+    expect(secondPut.status).toBe(200);
+    expect(secondPut.body.notes).toBeNull();
+  });
+
+  it('rejects GET /sessions with missing or malformed from/to params', async () => {
+    const app = createApp();
+    const auth = { Authorization: 'Bearer test-token' };
+
+    const missing = await request(app).get('/sessions').set(auth);
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toBeDefined();
+
+    const malformed = await request(app)
+      .get('/sessions?from=not-a-date&to=2026-07-01')
+      .set(auth);
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.error).toBeDefined();
+  });
 });

@@ -6,6 +6,16 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 
 export const sessionsRouter = Router();
 
+const dateStringSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((v) => !isNaN(Date.parse(v)), { message: 'Invalid date' });
+
+const listQuerySchema = z.object({
+  from: dateStringSchema,
+  to: dateStringSchema,
+});
+
 const entrySchema = z.object({
   exerciseId: z.string().optional(),
   equipment: z.string().optional(),
@@ -18,15 +28,22 @@ const entrySchema = z.object({
 });
 
 const putSchema = z.object({
-  notes: z.string().optional(),
+  notes: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((v) => v ?? null),
   entries: z.array(entrySchema),
 });
 
 sessionsRouter.get(
   '/sessions',
   asyncHandler(async (req, res) => {
-    const from = new Date(String(req.query.from));
-    const to = new Date(String(req.query.to));
+    const parsedQuery = listQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) return res.status(400).json({ error: parsedQuery.error.flatten() });
+
+    const from = new Date(parsedQuery.data.from);
+    const to = new Date(parsedQuery.data.to);
     const sessions = await prisma.workoutSession.findMany({
       where: { userId: 'lucas', date: { gte: from, lte: to } },
       include: { entries: true },

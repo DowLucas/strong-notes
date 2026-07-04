@@ -7,6 +7,13 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 
 export const goalsRouter = Router();
 
+const progressQuerySchema = z.object({
+  weekStart: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine((v) => !isNaN(Date.parse(v)), { message: 'Invalid date' }),
+});
+
 const createSchema = z.object({
   type: z.nativeEnum(GoalType),
   description: z.string().optional(),
@@ -64,10 +71,13 @@ goalsRouter.get(
 goalsRouter.get(
   '/goals/active/progress',
   asyncHandler(async (req, res) => {
+    const parsedQuery = progressQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) return res.status(400).json({ error: parsedQuery.error.flatten() });
+
     const goal = await prisma.goal.findFirst({ where: { userId: 'lucas', isActive: true }, include: { targets: true } });
     if (!goal) return res.status(404).json({ error: 'no active goal' });
 
-    const weekStart = new Date(`${String(req.query.weekStart)}T00:00:00.000Z`);
+    const weekStart = new Date(`${parsedQuery.data.weekStart}T00:00:00.000Z`);
     const weekEnd = new Date(weekStart);
     weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
 
