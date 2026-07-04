@@ -5,6 +5,7 @@ export function ParsedLineRow({ line }: { line: ParsedLine }) {
   return (
     <View style={styles.row}>
       <Text>{line.rawText}</Text>
+      {line.status === 'pending' && <Text style={styles.pending}>Not yet parsed</Text>}
       {line.status === 'needs-confirm' && <Text style={styles.pending}>Confirm: {line.exerciseName}</Text>}
       {line.status === 'unresolved' && <Text style={styles.pending}>Unrecognized</Text>}
     </View>

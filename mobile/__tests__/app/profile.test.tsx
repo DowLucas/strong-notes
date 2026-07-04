@@ -3,6 +3,7 @@ import ProfileScreen from '../../app/(tabs)/profile';
 import { resetDbForTests } from '../../src/db/client';
 import { cacheAbbreviations } from '../../src/db/abbreviationsRepo';
 import { confirmAbbreviation } from '../../src/api/client';
+import { syncNow } from '../../src/sync/syncEngine';
 
 jest.mock('../../src/api/client', () => ({
   confirmAbbreviation: jest.fn().mockResolvedValue({}),
@@ -12,6 +13,8 @@ jest.mock('../../src/api/client', () => ({
 jest.mock('../../src/sync/syncEngine', () => ({
   syncNow: jest.fn().mockResolvedValue({ pushed: 0, pulled: 0 }),
 }));
+
+const mockSyncNow = syncNow as jest.Mock;
 
 beforeEach(async () => {
   resetDbForTests();
@@ -34,6 +37,16 @@ describe('ProfileScreen', () => {
 
     await waitFor(() => {
       expect(confirmAbbreviation).toHaveBeenCalledWith('2');
+    });
+  });
+
+  it('shows an error message when syncNow rejects on load', async () => {
+    mockSyncNow.mockRejectedValueOnce(new Error('network down'));
+
+    await render(<ProfileScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Couldn't load data. Pull down or reopen the app to retry.")).toBeTruthy();
     });
   });
 });

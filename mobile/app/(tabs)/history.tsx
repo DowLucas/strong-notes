@@ -15,31 +15,42 @@ function today(): string {
 
 export default function HistoryScreen() {
   const [sessions, setSessions] = useState<LocalSession[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
-      const data = await listLocalSessions(ninetyDaysAgo(), today());
-      setSessions(data);
+      try {
+        const data = await listLocalSessions(ninetyDaysAgo(), today());
+        setSessions(data);
+        setError(null);
+      } catch {
+        setError("Couldn't load data. Pull down or reopen the app to retry.");
+      }
     })();
   }, []);
 
   return (
-    <FlatList
-      data={sessions}
-      keyExtractor={(s) => s.date}
-      renderItem={({ item }) => (
-        <View style={styles.session}>
-          <Text style={styles.date}>{item.date}</Text>
-          {item.entries.map((e) => (
-            <Text key={e.id}>{e.rawText}</Text>
-          ))}
-        </View>
-      )}
-    />
+    <View style={styles.container}>
+      {error && <Text style={styles.error}>{error}</Text>}
+      <FlatList
+        data={sessions}
+        keyExtractor={(s) => s.date}
+        renderItem={({ item }) => (
+          <View style={styles.session}>
+            <Text style={styles.date}>{item.date}</Text>
+            {item.entries.map((e) => (
+              <Text key={e.id}>{e.rawText}</Text>
+            ))}
+          </View>
+        )}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: { flex: 1 },
   session: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
   date: { fontWeight: '700', marginBottom: 4 },
+  error: { color: '#a33', padding: 16 },
 });

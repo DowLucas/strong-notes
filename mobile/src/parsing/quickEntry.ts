@@ -3,13 +3,20 @@ import { getCachedAbbreviations } from '../db/abbreviationsRepo';
 
 export type ParsedLine = {
   rawText: string;
-  status: 'resolved' | 'needs-confirm' | 'unresolved';
+  // 'pending' represents a raw line that's been saved locally but hasn't
+  // been through parseQuickEntryLine yet (or whose parse attempt failed) -
+  // see mobile/app/(tabs)/index.tsx's offline-first submit flow. It's an
+  // additive union member; existing 'resolved' | 'needs-confirm' |
+  // 'unresolved' producers/consumers are unaffected.
+  status: 'pending' | 'resolved' | 'needs-confirm' | 'unresolved';
   exerciseName?: string;
   equipment?: string;
   weightKg?: number;
   reps?: number;
   sets?: number;
-  parsedBy: 'DICTIONARY' | 'LLM';
+  // Unset while a line is 'pending' - only known once parseQuickEntryLine
+  // resolves.
+  parsedBy?: 'DICTIONARY' | 'LLM';
 };
 
 // Mirrors backend/src/parsing/dictionaryResolver.ts's NUMERIC_TOKEN so weight/rep-set
