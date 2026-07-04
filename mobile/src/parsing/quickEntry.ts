@@ -1,4 +1,5 @@
 import { resolveLine } from '../api/client';
+import { getCachedAbbreviations } from '../db/abbreviationsRepo';
 
 export type ParsedLine = {
   rawText: string;
@@ -11,7 +12,31 @@ export type ParsedLine = {
   parsedBy: 'DICTIONARY' | 'LLM';
 };
 
+// Mirrors backend/src/parsing/dictionaryResolver.ts's NUMERIC_TOKEN so weight/rep-set
+// tokens (e.g. "40kg", "8x3") are excluded from dictionary lookup the same way server-side.
+const NUMERIC_TOKEN = /^\d+(\.\d+)?(kg|lb)?$|^\d+x\d+$/i;
+
+async function tryResolveLocally(line: string): Promise<boolean> {
+  const tokens = line.trim().split(/\s+/);
+  const wordTokens = tokens.filter((t) => !NUMERIC_TOKEN.test(t));
+
+  if (wordTokens.length === 0) {
+    // No word tokens to resolve (e.g. an all-numeric line) - nothing for the
+    // dictionary to confirm, so let the network path handle classification.
+    return false;
+  }
+
+  const cached = await getCachedAbbreviations();
+  const byToken = new Map(cached.map((a) => [a.token.toUpperCase(), a]));
+
+  return wordTokens.every((t) => byToken.has(t.toUpperCase()));
+}
+
 export async function parseQuickEntryLine(line: string): Promise<ParsedLine> {
+  if (await tryResolveLocally(line)) {
+    return { rawText: line, status: 'resolved', parsedBy: 'DICTIONARY' };
+  }
+
   const response = await resolveLine(line);
 
   if (response.llmGuess) {
