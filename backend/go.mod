@@ -3,6 +3,7 @@ module github.com/DowLucas/strong-notes-backend
 go 1.25.0
 
 require (
+	github.com/anthropics/anthropic-sdk-go v1.56.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.18.3
@@ -23,6 +24,8 @@ require (
 	dario.cat/mergo v1.0.1 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
@@ -45,6 +48,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
+	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
@@ -67,6 +71,7 @@ require (
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
+	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -77,6 +82,7 @@ require (
 	github.com/shirou/gopsutil/v3 v3.23.12 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
@@ -97,6 +103,7 @@ require (
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/goleak v1.3.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
