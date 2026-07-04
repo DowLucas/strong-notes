@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -33,6 +34,25 @@ type createExerciseRequest struct {
 	Muscles []string `json:"muscles"`
 }
 
+// exerciseResponse mirrors db.Exercise but with camelCase JSON tags: the
+// sqlc-generated model uses db-column-style snake_case tags, which don't
+// match the mobile client's expected camelCase response shape.
+type exerciseResponse struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Category  string `json:"category"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func toExerciseResponse(e db.Exercise) exerciseResponse {
+	return exerciseResponse{
+		ID:        e.ID,
+		Name:      e.Name,
+		Category:  e.Category,
+		CreatedAt: e.CreatedAt.Time.Format(time.RFC3339),
+	}
+}
+
 // Create handles POST /api/exercises. It looks up an existing exercise by
 // name and returns it unchanged (200) if found, otherwise creates a new
 // exercise plus its muscle map entries (201). Name-based dedupe means the
@@ -48,7 +68,19 @@ func (h *ExercisesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "at least one muscle is required")
 		return
 	}
+
+	// Dedupe muscles: a request like ["GLUTES","GLUTES"] should collapse to a
+	// single MuscleMapEntry per unique muscle, not one row per occurrence.
+	seen := make(map[string]bool, len(req.Muscles))
+	muscles := make([]string, 0, len(req.Muscles))
 	for _, m := range req.Muscles {
+		if !seen[m] {
+			seen[m] = true
+			muscles = append(muscles, m)
+		}
+	}
+
+	for _, m := range muscles {
 		if !validMuscles[m] {
 			writeError(w, http.StatusBadRequest, "invalid muscle: "+m)
 			return
@@ -57,7 +89,7 @@ func (h *ExercisesHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := h.queries.GetExerciseByName(r.Context(), req.Name)
 	if err == nil {
-		writeJSON(w, http.StatusOK, existing)
+		writeJSON(w, http.StatusOK, toExerciseResponse(existing))
 		return
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -73,7 +105,7 @@ func (h *ExercisesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, m := range req.Muscles {
+	for _, m := range muscles {
 		if err := h.queries.CreateMuscleMapEntry(r.Context(), db.CreateMuscleMapEntryParams{
 			ID: ulid.New(), ExerciseID: created.ID, Muscle: m, Role: "PRIMARY", Weight: 1,
 		}); err != nil {
@@ -82,5 +114,5 @@ func (h *ExercisesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, created)
+	writeJSON(w, http.StatusCreated, toExerciseResponse(created))
 }
