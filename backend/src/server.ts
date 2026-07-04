@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { healthRouter } from './routes/health.js';
 import { requireAuth } from './middleware/auth.js';
+import { resolveRouter } from './routes/resolve.js';
 
 export function createApp() {
   const app = express();
@@ -10,6 +11,7 @@ export function createApp() {
   app.use(healthRouter);
   app.use(requireAuth);
   // authenticated routers are added by later tasks below this line
+  app.use(resolveRouter);
   app.get('/abbreviations', (_req, res) => res.status(200).json([]));
   return app;
 }
