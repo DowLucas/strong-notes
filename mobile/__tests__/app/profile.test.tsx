@@ -85,4 +85,34 @@ describe('ProfileScreen', () => {
       expect(screen.getByDisplayValue('existing-token')).toBeTruthy();
     });
   });
+
+  it('shows an error message when setApiToken rejects', async () => {
+    mockSetApiToken.mockRejectedValueOnce(new Error('storage failure'));
+
+    await render(<ProfileScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('API token')).toBeTruthy();
+    });
+
+    await fireEvent.changeText(screen.getByPlaceholderText('API token'), 'my-secret-token');
+    await fireEvent.press(screen.getByText('Save'));
+
+    await waitFor(() => {
+      expect(screen.getByText("Couldn't load data. Pull down or reopen the app to retry.")).toBeTruthy();
+    });
+  });
+
+  it('does not save a blank or whitespace-only token', async () => {
+    await render(<ProfileScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('API token')).toBeTruthy();
+    });
+
+    await fireEvent.changeText(screen.getByPlaceholderText('API token'), '   ');
+    await fireEvent.press(screen.getByText('Save'));
+
+    expect(setApiToken).not.toHaveBeenCalled();
+  });
 });

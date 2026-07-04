@@ -42,8 +42,13 @@ export default function ProfileScreen() {
   }
 
   async function handleSaveToken() {
-    await setApiToken(token);
-    await refresh();
+    if (!token.trim()) return;
+    try {
+      await setApiToken(token);
+      await refresh();
+    } catch {
+      setError("Couldn't load data. Pull down or reopen the app to retry.");
+    }
   }
 
   return (
