@@ -1,0 +1,128 @@
+// backend/prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MuscleGroup {
+  GLUTES
+  QUADS
+  HAMSTRINGS
+  CHEST
+  BACK
+  SHOULDERS
+  ARMS
+  CORE
+  CALVES
+}
+
+enum MuscleRole {
+  PRIMARY
+  SECONDARY
+}
+
+enum ExerciseCategory {
+  COMPOUND
+  ISOLATION
+}
+
+enum AbbreviationSource {
+  BUILT_IN
+  USER_ADDED
+  LLM_SUGGESTED_PENDING_CONFIRM
+}
+
+enum ParsedBy {
+  DICTIONARY
+  LLM
+}
+
+enum GoalType {
+  HYPERTROPHY
+  STRENGTH
+  ENDURANCE
+  CUSTOM
+}
+
+model Exercise {
+  id            String           @id @default(cuid())
+  name          String           @unique
+  category      ExerciseCategory
+  muscleMap     MuscleMapEntry[]
+  abbreviations Abbreviation[]
+  setEntries    SetEntry[]
+  createdAt     DateTime         @default(now())
+}
+
+model MuscleMapEntry {
+  id         String      @id @default(cuid())
+  exercise   Exercise    @relation(fields: [exerciseId], references: [id])
+  exerciseId String
+  muscle     MuscleGroup
+  role       MuscleRole
+  weight     Float
+}
+
+model Abbreviation {
+  id            String             @id @default(cuid())
+  userId        String             @default("lucas")
+  token         String
+  exercise      Exercise?          @relation(fields: [exerciseId], references: [id])
+  exerciseId    String?
+  modifierType  String?
+  modifierValue String?
+  source        AbbreviationSource @default(USER_ADDED)
+  createdAt     DateTime           @default(now())
+
+  @@unique([userId, token])
+}
+
+model WorkoutSession {
+  id        String     @id @default(cuid())
+  userId    String     @default("lucas")
+  date      DateTime
+  notes     String?
+  entries   SetEntry[]
+  createdAt DateTime   @default(now())
+
+  @@unique([userId, date])
+}
+
+model SetEntry {
+  id         String         @id @default(cuid())
+  session    WorkoutSession @relation(fields: [sessionId], references: [id])
+  sessionId  String
+  exercise   Exercise?      @relation(fields: [exerciseId], references: [id])
+  exerciseId String?
+  equipment  String?
+  weightKg   Float?
+  reps       Int?
+  sets       Int?
+  rawText    String
+  parsedBy   ParsedBy
+  order      Int
+  createdAt  DateTime       @default(now())
+}
+
+model Goal {
+  id          String       @id @default(cuid())
+  userId      String       @default("lucas")
+  type        GoalType
+  description String?
+  isActive    Boolean      @default(true)
+  targets     GoalTarget[]
+  createdAt   DateTime     @default(now())
+}
+
+model GoalTarget {
+  id             String      @id @default(cuid())
+  goal           Goal        @relation(fields: [goalId], references: [id])
+  goalId         String
+  muscle         MuscleGroup
+  minSetsPerWeek Int
+  maxSetsPerWeek Int
+}
