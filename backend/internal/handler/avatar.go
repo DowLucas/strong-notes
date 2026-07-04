@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -165,8 +164,8 @@ func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	// Record the previous key BEFORE overwriting so we can best-effort
 	// delete the old object after the DB update commits.
 	var prevKey string
-	if prev, err := h.queries.GetUserByID(r.Context(), claims.UserID); err == nil && prev.AvatarObjectKey.Valid {
-		prevKey = prev.AvatarObjectKey.String
+	if prev, err := h.queries.GetUserByID(r.Context(), claims.UserID); err == nil && prev.AvatarObjectKey != nil {
+		prevKey = *prev.AvatarObjectKey
 	}
 
 	key := "avatars/" + claims.UserID + "/" + ulid.New() + ".jpg"
@@ -178,7 +177,7 @@ func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.queries.SetUserAvatar(r.Context(), db.SetUserAvatarParams{
 		ID:              claims.UserID,
-		AvatarObjectKey: pgtype.Text{String: key, Valid: true},
+		AvatarObjectKey: &key,
 	})
 	if err != nil {
 		_ = h.store.Delete(context.Background(), key)
@@ -209,8 +208,8 @@ func (h *AvatarHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var prevKey string
-	if prev, err := h.queries.GetUserByID(r.Context(), claims.UserID); err == nil && prev.AvatarObjectKey.Valid {
-		prevKey = prev.AvatarObjectKey.String
+	if prev, err := h.queries.GetUserByID(r.Context(), claims.UserID); err == nil && prev.AvatarObjectKey != nil {
+		prevKey = *prev.AvatarObjectKey
 	}
 
 	if _, err := h.queries.ClearUserAvatar(r.Context(), claims.UserID); err != nil {
@@ -257,12 +256,13 @@ func (h *AvatarHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if !target.AvatarObjectKey.Valid || target.AvatarObjectKey.String == "" {
+	if target.AvatarObjectKey == nil || *target.AvatarObjectKey == "" {
 		writeError(w, http.StatusNotFound, "no avatar")
 		return
 	}
+	avatarKey := *target.AvatarObjectKey
 
-	sum := sha256.Sum256([]byte(targetID + "|" + target.AvatarObjectKey.String))
+	sum := sha256.Sum256([]byte(targetID + "|" + avatarKey))
 	etag := `"` + hex.EncodeToString(sum[:])[:16] + `"`
 	if match := r.Header.Get("If-None-Match"); match != "" && match == etag {
 		w.Header().Set("ETag", etag)
@@ -270,9 +270,9 @@ func (h *AvatarHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	obj, err := h.store.Open(r.Context(), target.AvatarObjectKey.String)
+	obj, err := h.store.Open(r.Context(), avatarKey)
 	if err != nil {
-		slog.Warn("avatar open failed", "key", target.AvatarObjectKey.String, "err", err)
+		slog.Warn("avatar open failed", "key", avatarKey, "err", err)
 		writeError(w, http.StatusBadGateway, "could not load avatar")
 		return
 	}
@@ -285,7 +285,7 @@ func (h *AvatarHandler) Get(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=60")
 	w.Header().Set("ETag", etag)
 	if _, err := io.Copy(w, obj); err != nil {
-		slog.Warn("avatar stream failed", "key", target.AvatarObjectKey.String, "err", err)
+		slog.Warn("avatar stream failed", "key", avatarKey, "err", err)
 	}
 }
 

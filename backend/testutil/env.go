@@ -97,9 +97,9 @@ func pgText(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
 }
 
-func nullText(s string) pgtype.Text {
+func nullText(s string) *string {
 	if s == "" {
-		return pgtype.Text{Valid: false}
+		return nil
 	}
-	return pgtype.Text{String: s, Valid: true}
+	return &s
 }

@@ -103,10 +103,10 @@ func userToResponse(u db.User) userResponse {
 		Email: u.Email,
 		Name:  u.DisplayName,
 	}
-	if u.Phone.Valid {
-		r.Phone = u.Phone.String
+	if u.Phone != nil {
+		r.Phone = *u.Phone
 	}
-	if u.AvatarObjectKey.Valid && u.AvatarObjectKey.String != "" {
+	if u.AvatarObjectKey != nil && *u.AvatarObjectKey != "" {
 		v := avatarURL(u.ID)
 		r.AvatarObjectURL = &v
 	}
@@ -370,7 +370,7 @@ func (h *AuthHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nameParam := pgtype.Text{}
+	var nameParam *string
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
@@ -381,10 +381,10 @@ func (h *AuthHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "name too long")
 			return
 		}
-		nameParam = pgtype.Text{String: name, Valid: true}
+		nameParam = &name
 	}
 
-	phoneParam := pgtype.Text{}
+	var phoneParam *string
 	if req.Phone != nil {
 		phone := strings.TrimSpace(*req.Phone)
 		if phone == "" {
@@ -395,7 +395,7 @@ func (h *AuthHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "phone too long")
 			return
 		}
-		phoneParam = pgtype.Text{String: phone, Valid: true}
+		phoneParam = &phone
 	}
 
 	user, err := h.queries.UpdateUser(r.Context(), db.UpdateUserParams{

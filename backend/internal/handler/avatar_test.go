@@ -94,7 +94,7 @@ func TestAvatar_Upload_Success(t *testing.T) {
 
 	user, err := e.env.Queries.GetUserByID(context.Background(), e.alice.ID)
 	require.NoError(t, err)
-	assert.True(t, user.AvatarObjectKey.Valid)
+	assert.NotNil(t, user.AvatarObjectKey)
 	assert.True(t, user.AvatarUpdatedAt.Valid)
 }
 
@@ -269,7 +269,8 @@ func TestAvatar_Delete_RemovesObjectAndRow(t *testing.T) {
 
 	user, err := e.env.Queries.GetUserByID(context.Background(), e.alice.ID)
 	require.NoError(t, err)
-	oldKey := user.AvatarObjectKey.String
+	require.NotNil(t, user.AvatarObjectKey)
+	oldKey := *user.AvatarObjectKey
 	require.NotEmpty(t, oldKey)
 
 	delResp := e.env.Do(t, e.env.AuthRequest(t, http.MethodDelete, "/api/me/avatar", "", e.alice.Token))
@@ -277,7 +278,7 @@ func TestAvatar_Delete_RemovesObjectAndRow(t *testing.T) {
 
 	user, err = e.env.Queries.GetUserByID(context.Background(), e.alice.ID)
 	require.NoError(t, err)
-	assert.False(t, user.AvatarObjectKey.Valid)
+	assert.Nil(t, user.AvatarObjectKey)
 
 	store := testutil.SharedStorage(t)
 	_, err = store.Open(context.Background(), oldKey)
@@ -296,13 +297,15 @@ func TestAvatar_Upload_DeletesPreviousObject(t *testing.T) {
 		uploadAvatar(t, e.env, e.alice.Token, makeJPEGBytes(t, 200, 200), "image/jpeg").StatusCode)
 	first, err := e.env.Queries.GetUserByID(context.Background(), e.alice.ID)
 	require.NoError(t, err)
-	firstKey := first.AvatarObjectKey.String
+	require.NotNil(t, first.AvatarObjectKey)
+	firstKey := *first.AvatarObjectKey
 
 	require.Equal(t, http.StatusOK,
 		uploadAvatar(t, e.env, e.alice.Token, makePNGBytes(t, 300, 300), "image/png").StatusCode)
 	second, err := e.env.Queries.GetUserByID(context.Background(), e.alice.ID)
 	require.NoError(t, err)
-	assert.NotEqual(t, firstKey, second.AvatarObjectKey.String)
+	require.NotNil(t, second.AvatarObjectKey)
+	assert.NotEqual(t, firstKey, *second.AvatarObjectKey)
 
 	store := testutil.SharedStorage(t)
 	_, err = store.Open(context.Background(), firstKey)
