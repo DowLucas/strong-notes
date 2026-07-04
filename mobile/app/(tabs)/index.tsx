@@ -103,7 +103,16 @@ export default function LogScreen() {
     const nextLines = [...linesRef.current, pendingEntry];
     linesRef.current = nextLines;
     setLines(nextLines);
-    await persist(nextLines);
+    try {
+      await persist(nextLines);
+      setError(null);
+    } catch {
+      // The write that's supposed to make this entry durable failed (disk
+      // full, DB locked, etc.) - surface the same retry hint used elsewhere
+      // rather than letting the rejection go unhandled.
+      setError(ERROR_MESSAGE);
+      return;
+    }
 
     // Classification runs in the background - handleSubmit does not await
     // it, so submitting never blocks on the network.
