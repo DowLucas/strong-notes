@@ -24,4 +24,16 @@ describe('auth middleware', () => {
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);
   });
+
+  it('fails closed (500) on protected routes when API_TOKEN is unset, rather than authenticating "Bearer undefined"', async () => {
+    const original = process.env.API_TOKEN;
+    delete process.env.API_TOKEN;
+    try {
+      const app = createApp();
+      const res = await request(app).get('/abbreviations').set('Authorization', 'Bearer undefined');
+      expect(res.status).toBe(500);
+    } finally {
+      process.env.API_TOKEN = original;
+    }
+  });
 });
