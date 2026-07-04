@@ -3,6 +3,7 @@ import cors from 'cors';
 import { healthRouter } from './routes/health.js';
 import { requireAuth } from './middleware/auth.js';
 import { resolveRouter } from './routes/resolve.js';
+import { errorHandler } from './middleware/errorHandler.js';
 
 export function createApp() {
   const app = express();
@@ -13,8 +14,20 @@ export function createApp() {
   // authenticated routers are added by later tasks below this line
   app.use(resolveRouter);
   app.get('/abbreviations', (_req, res) => res.status(200).json([]));
+  // must be mounted after all routers: catches errors forwarded via next(err)
+  // from asyncHandler-wrapped routes so they become clean JSON 500s instead
+  // of crashing the process.
+  app.use(errorHandler);
   return app;
 }
+
+// Defense-in-depth: routes should always go through asyncHandler + errorHandler
+// above, but this guards against any future async work started outside a
+// request's promise chain (e.g. a fire-and-forget promise) so it can never
+// bring the whole process down.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
 
 if (process.env.NODE_ENV !== 'test' && import.meta.url === `file://${process.argv[1]}`) {
   const app = createApp();

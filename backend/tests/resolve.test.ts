@@ -38,6 +38,36 @@ describe('POST /resolve/line', () => {
   });
 });
 
+describe('error handling', () => {
+  it('returns a clean 500 JSON response (not a crash) when the LLM fallback rejects', async () => {
+    vi.spyOn(llm, 'getLlmProvider').mockReturnValue({
+      resolveLine: vi.fn().mockRejectedValue(new Error('LLM backend is having a bad day')),
+      resolveGoal: vi.fn(),
+    });
+    const app = createApp();
+    const res = await request(app)
+      .post('/resolve/line')
+      .set('Authorization', 'Bearer test-token')
+      .send({ line: 'CRABWALK 8x2' });
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'internal error' });
+  });
+
+  it('returns a clean 500 JSON response when /resolve/goal rejects', async () => {
+    vi.spyOn(llm, 'getLlmProvider').mockReturnValue({
+      resolveLine: vi.fn(),
+      resolveGoal: vi.fn().mockRejectedValue(new Error('network failure')),
+    });
+    const app = createApp();
+    const res = await request(app)
+      .post('/resolve/goal')
+      .set('Authorization', 'Bearer test-token')
+      .send({ text: 'I want a bigger booty' });
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'internal error' });
+  });
+});
+
 describe('POST /resolve/goal', () => {
   it('translates free text into a structured goal guess', async () => {
     vi.spyOn(llm, 'getLlmProvider').mockReturnValue({
