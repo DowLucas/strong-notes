@@ -1,12 +1,22 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import type { ParsedLine } from '../parsing/quickEntry';
 
-export function ParsedLineRow({ line }: { line: ParsedLine }) {
+export function ParsedLineRow({
+  line,
+  onConfirm,
+}: {
+  line: ParsedLine;
+  onConfirm?: (line: ParsedLine) => void;
+}) {
   return (
     <View style={styles.row}>
       <Text>{line.rawText}</Text>
       {line.status === 'pending' && <Text style={styles.pending}>Not yet parsed</Text>}
-      {line.status === 'needs-confirm' && <Text style={styles.pending}>Confirm: {line.exerciseName}</Text>}
+      {line.status === 'needs-confirm' && (
+        <Pressable onPress={() => onConfirm?.(line)}>
+          <Text style={styles.pending}>Confirm: {line.exerciseName}</Text>
+        </Pressable>
+      )}
       {line.status === 'unresolved' && <Text style={styles.pending}>Unrecognized</Text>}
     </View>
   );

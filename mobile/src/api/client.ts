@@ -137,6 +137,13 @@ export function confirmAbbreviation(id: string): Promise<Abbreviation> {
   return request(`/abbreviations/${id}/confirm`, { method: 'PATCH' });
 }
 
+export function createExercise(input: {
+  name: string;
+  muscles: MuscleGroup[];
+}): Promise<{ id: string; name: string; muscleMap: unknown[] }> {
+  return request('/exercises', { method: 'POST', body: JSON.stringify(input) });
+}
+
 export function putSession(
   date: string,
   body: { notes?: string | null; entries: SetEntryInput[] }

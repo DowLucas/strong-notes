@@ -83,6 +83,20 @@ describe('parseQuickEntryLine', () => {
     expect(result.sets).toBe(2);
   });
 
+  it('carries the unresolved token and LLM muscle guess through on a needs-confirm result', async () => {
+    mockResolveLine.mockResolvedValue({
+      resolvedTokens: [],
+      unresolvedTokens: ['CRABWALK'],
+      llmGuess: { exerciseName: 'Cable Crab Walk', equipment: undefined, weightKg: 99, reps: 8, sets: 2, muscles: ['GLUTES', 'CORE'] },
+    });
+
+    const result = await parseQuickEntryLine('CRABWALK 8x2');
+
+    expect(result.status).toBe('needs-confirm');
+    expect(result.unresolvedToken).toBe('CRABWALK');
+    expect(result.muscles).toEqual(['GLUTES', 'CORE']);
+  });
+
   it('falls back to client-side numeric parsing when the LLM guess omits weight/reps/sets', async () => {
     mockResolveLine.mockResolvedValue({
       resolvedTokens: [],

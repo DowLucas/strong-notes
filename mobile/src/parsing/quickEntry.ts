@@ -1,5 +1,6 @@
 import { resolveLine } from '../api/client';
 import { getCachedAbbreviations } from '../db/abbreviationsRepo';
+import type { MuscleGroup } from '../api/types';
 
 export type ParsedLine = {
   rawText: string;
@@ -22,6 +23,14 @@ export type ParsedLine = {
   // Unset while a line is 'pending' - only known once parseQuickEntryLine
   // resolves.
   parsedBy?: 'DICTIONARY' | 'LLM';
+  // Set only for a 'needs-confirm' result: the literal token from the raw
+  // line (e.g. "CRABWALK") that the LLM fell back to resolving, so the
+  // confirm action knows exactly which token to save as a new Abbreviation.
+  unresolvedToken?: string;
+  // Set only for a 'needs-confirm' result: the LLM's muscle-group guess for
+  // the new exercise, passed straight through to createExercise() when the
+  // user confirms.
+  muscles?: MuscleGroup[];
 };
 
 // Mirrors backend/src/parsing/dictionaryResolver.ts's NUMERIC_TOKEN so weight/rep-set
@@ -126,6 +135,10 @@ export async function parseQuickEntryLine(line: string): Promise<ParsedLine> {
       reps: response.llmGuess.reps ?? numeric.reps,
       sets: response.llmGuess.sets ?? numeric.sets,
       parsedBy: 'LLM',
+      // There's always at least one unresolved token here - it's what
+      // triggered the LLM fallback in the first place.
+      unresolvedToken: response.unresolvedTokens[0],
+      muscles: response.llmGuess.muscles,
     };
   }
 

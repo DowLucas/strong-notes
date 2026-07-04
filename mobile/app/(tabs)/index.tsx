@@ -3,6 +3,7 @@ import { View, Text, TextInput, FlatList, StyleSheet } from 'react-native';
 import { parseQuickEntryLine, type ParsedLine } from '../../src/parsing/quickEntry';
 import { upsertLocalSession, getLocalSession } from '../../src/db/sessionsRepo';
 import { ParsedLineRow } from '../../src/components/ParsedLineRow';
+import { createExercise, createAbbreviation } from '../../src/api/client';
 
 // The UI/persistence list carries a stable id per entry, generated the
 // moment it's submitted - independent of whatever parseQuickEntryLine later
@@ -161,13 +162,31 @@ export default function LogScreen() {
       });
   }
 
+  // Handles a user tapping "Confirm: <name>" on a 'needs-confirm' line: turns
+  // the LLM's one-off guess into a permanent, reusable resolution by (a)
+  // creating (or reusing, per the backend's name-based dedupe) the real
+  // Exercise, (b) saving the literal unresolved token as a new Abbreviation
+  // pointing at it so this shorthand never needs the LLM again, and (c)
+  // flipping the entry to 'resolved' so it counts toward progress and
+  // re-persists via the existing queue.
+  async function handleConfirmLine(line: UiLine): Promise<void> {
+    try {
+      const exercise = await createExercise({ name: line.exerciseName!, muscles: line.muscles ?? [] });
+      await createAbbreviation({ token: line.unresolvedToken!, exerciseId: exercise.id });
+      await updateEntry(line.id, { status: 'resolved', exerciseId: exercise.id, parsedBy: 'LLM' });
+      setError(null);
+    } catch {
+      setError(ERROR_MESSAGE);
+    }
+  }
+
   return (
     <View style={styles.container}>
       {error && <Text style={styles.error}>{error}</Text>}
       <FlatList
         data={lines}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <ParsedLineRow line={item} />}
+        renderItem={({ item }) => <ParsedLineRow line={item} onConfirm={handleConfirmLine} />}
       />
       <TextInput
         style={styles.input}

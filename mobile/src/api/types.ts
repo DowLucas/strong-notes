@@ -5,7 +5,14 @@ export type ParsedBy = 'DICTIONARY' | 'LLM';
 export type ResolveLineResponse = {
   resolvedTokens: { token: string; type: 'exercise' | 'modifier'; exerciseId?: string; modifierType?: string; modifierValue?: string }[];
   unresolvedTokens: string[];
-  llmGuess?: { exerciseName: string; equipment?: string; weightKg?: number; reps?: number; sets?: number };
+  llmGuess?: {
+    exerciseName: string;
+    equipment?: string;
+    weightKg?: number;
+    reps?: number;
+    sets?: number;
+    muscles?: MuscleGroup[];
+  };
 };
 
 export type GoalGuess = { type: GoalType; muscles: MuscleGroup[] };
