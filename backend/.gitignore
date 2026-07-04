@@ -1,3 +1,5 @@
-node_modules/
+tmp/
+build-errors.log
 .env
-dist/
+.env.local
+bin/

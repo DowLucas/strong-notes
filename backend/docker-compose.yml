@@ -1,25 +1,48 @@
-# backend/docker-compose.yml
-services:
-  api:
-    build: .
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: postgresql://strongnotes:${POSTGRES_PASSWORD}@postgres:5432/strongnotes
-      API_TOKEN: ${API_TOKEN}
-      LLM_PROVIDER: anthropic
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-    networks: [caddy-net]
-  postgres:
-    image: postgres:16
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: strongnotes
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: strongnotes
-    volumes:
-      - /tank/apps/strong-notes/pgdata:/var/lib/postgresql/data
-    networks: [caddy-net]
+# Explicit project name so this stack never collides with a sibling project
+# that also lives in a `backend/` directory (Compose otherwise derives the
+# project name from the directory and would adopt/recreate the other's
+# containers and volumes).
+name: scaffold
 
-networks:
-  caddy-net:
-    external: true
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scaffold-backend:dev
+    container_name: scaffold-backend
+    network_mode: host
+    env_file: .env.local
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8080/api/health/liveness"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Local S3-compatible storage for avatar uploads. Bound to the host network
+  # so the backend can talk to it via localhost:9000 — same address an AWS
+  # deployment would use after swapping endpoints. The Console UI on :9001 is
+  # useful for poking at uploaded objects during dev.
+  minio:
+    image: minio/minio:latest
+    container_name: scaffold-minio
+    network_mode: host
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - scaffold-minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
+volumes:
+  scaffold-minio-data:

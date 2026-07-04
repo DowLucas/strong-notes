@@ -1,26 +1,48 @@
-# backend/Dockerfile
-FROM node:24-slim@sha256:b31e7a42fdf8b8aa5f5ed477c72d694301273f1069c5a2f71d53c6482e99a2fc AS build
-WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends openssl \
-  && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json* ./
-RUN npm install
-COPY . .
-RUN npx prisma generate && npm run build
-RUN npm prune --omit=dev
+# Multi-stage build
+FROM golang:1.25-alpine AS builder
 
-FROM node:24-slim@sha256:b31e7a42fdf8b8aa5f5ed477c72d694301273f1069c5a2f71d53c6482e99a2fc
+WORKDIR /build
+
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates tzdata
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build binary with stripping and trimpath
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-s -w" \
+    -trimpath \
+    -o api ./cmd/api
+
+# Runtime stage
+FROM alpine:3.20
+
 WORKDIR /app
-ENV NODE_ENV=production
-RUN apt-get update && apt-get install -y --no-install-recommends openssl \
-  && rm -rf /var/lib/apt/lists/*
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/package.json ./package.json
-RUN chown -R node:node /app
-USER node
-EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
-  CMD node -e "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "dist/server.js"]
+
+# Install runtime dependencies (CA certificates for HTTPS)
+RUN apk add --no-cache ca-certificates tzdata
+
+# Copy CA certs from builder
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Copy binary and migrations from builder, owned by the non-root user
+RUN adduser -D -u 10001 scaffold
+COPY --from=builder --chown=scaffold:scaffold /build/api .
+COPY --chown=scaffold:scaffold migrations ./migrations
+
+USER scaffold
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \
+    CMD wget -q -O- http://localhost:8080/api/health/liveness || exit 1
+
+EXPOSE 8080
+
+ENTRYPOINT ["./api"]

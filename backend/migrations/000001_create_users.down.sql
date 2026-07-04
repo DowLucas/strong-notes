@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS users_active;
+DROP TABLE IF EXISTS users;
