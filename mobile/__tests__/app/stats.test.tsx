@@ -30,7 +30,7 @@ describe('StatsScreen', () => {
     await render(<StatsScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText('CHEST')).toBeTruthy();
+      expect(screen.getByLabelText('Chest: 4 of 10 sets')).toBeTruthy();
     });
   });
 
