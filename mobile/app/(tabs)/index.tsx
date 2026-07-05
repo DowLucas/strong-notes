@@ -1,154 +1,178 @@
+// app/(tabs)/index.tsx
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, FlatList, StyleSheet } from 'react-native';
+import { View, Text, Modal, Pressable, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/lib/auth';
-import { parseQuickEntryLine, type ParsedLine } from '@/src/parsing/quickEntry';
-import { upsertLocalSession, getLocalSession } from '@/src/db/sessionsRepo';
-import { ParsedLineRow } from '@/src/components/ParsedLineRow';
-
-type UiLine = ParsedLine & { id: string };
+import { scanNote, type ScannedEntry } from '@/src/parsing/scanNote';
+import { getLocalSession, upsertLocalSession, type LocalSetEntry } from '@/src/db/sessionsRepo';
+import { NotesEditor, type HighlightSpan } from '@/src/components/NotesEditor';
+import { EntryPopover } from '@/src/components/EntryPopover';
+import { colors, spacing } from '@/lib/theme';
 
 const ERROR_MESSAGE = "Couldn't load data. Pull down or reopen the app to retry.";
+const PERSIST_DELAY_MS = 300;
+const SCAN_DELAY_MS = 700;
 
 function todayDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-let idCounter = 0;
-function makeEntryId(): string {
-  idCounter += 1;
-  return `entry-${Date.now()}-${idCounter}`;
+function toLocalSetEntry(e: ScannedEntry): LocalSetEntry {
+  return {
+    id: e.id,
+    exerciseId: e.exerciseId,
+    equipment: e.equipment,
+    weightKg: e.weightKg,
+    reps: e.reps,
+    sets: e.sets,
+    rawText: e.rawText,
+    parsedBy: e.parsedBy,
+    order: e.order,
+    synced: 0,
+    spanStart: e.spanStart,
+    spanEnd: e.spanEnd,
+  };
 }
 
 export default function LogScreen() {
   const { api } = useAuth();
+  const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
-  const [lines, setLines] = useState<UiLine[]>([]);
+  const [entries, setEntries] = useState<ScannedEntry[]>([]);
+  const [popoverId, setPopoverId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const linesRef = useRef<UiLine[]>([]);
+  const entriesRef = useRef<ScannedEntry[]>([]);
   const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const existing = await getLocalSession(todayDate());
-        if (!existing) return;
-        const restored: UiLine[] = existing.entries.map((e) => ({
-          id: e.id,
-          rawText: e.rawText,
-          status: e.exerciseId ? 'resolved' : 'pending',
-          parsedBy: e.parsedBy,
-          exerciseId: e.exerciseId ?? undefined,
-          equipment: e.equipment ?? undefined,
-          weightKg: e.weightKg ?? undefined,
-          reps: e.reps ?? undefined,
-          sets: e.sets ?? undefined,
-        }));
-        linesRef.current = restored;
-        setLines(restored);
-      } catch {
-        setError(ERROR_MESSAGE);
-      }
-    })();
-  }, []);
-
-  async function persistLines(allLines: UiLine[]): Promise<void> {
-    const date = todayDate();
-    const existing = await getLocalSession(date);
-    await upsertLocalSession({
-      date,
-      notes: existing?.notes ?? null,
-      synced: 0,
-      entries: allLines.map((l, i) => ({
-        id: l.id,
-        exerciseId: l.exerciseId ?? null,
-        equipment: l.equipment ?? null,
-        weightKg: l.weightKg ?? null,
-        reps: l.reps ?? null,
-        sets: l.sets ?? null,
-        rawText: l.rawText,
-        parsedBy: l.parsedBy ?? 'DICTIONARY',
-        order: i,
-        synced: 0,
-      })),
-    });
+  function applyEntries(next: ScannedEntry[]) {
+    entriesRef.current = next;
+    setEntries(next);
   }
 
-  function persist(allLines: UiLine[]): Promise<void> {
-    const task = persistQueueRef.current.then(() => persistLines(allLines));
+  function persist(noteText: string, list: ScannedEntry[]): Promise<void> {
+    const task = persistQueueRef.current.then(() =>
+      upsertLocalSession({
+        date: todayDate(),
+        notes: noteText,
+        synced: 0,
+        entries: list.map(toLocalSetEntry),
+      }),
+    );
     persistQueueRef.current = task.catch(() => undefined);
     return task;
   }
 
-  function updateEntry(id: string, updates: Partial<ParsedLine>): Promise<void> {
-    const updated = linesRef.current.map((l) => (l.id === id ? { ...l, ...updates } : l));
-    linesRef.current = updated;
-    setLines(updated);
-    return persist(updated);
-  }
-
-  async function handleSubmit() {
-    const line = text.trim();
-    if (!line) return;
-    setText('');
-
-    const id = makeEntryId();
-    const pendingEntry: UiLine = { id, rawText: line, status: 'pending', parsedBy: 'DICTIONARY' };
-
-    const nextLines = [...linesRef.current, pendingEntry];
-    linesRef.current = nextLines;
-    setLines(nextLines);
+  async function runScan(noteText: string): Promise<void> {
     try {
-      await persist(nextLines);
+      const scanned = await scanNote(api, noteText, entriesRef.current);
+      applyEntries(scanned);
+      await persist(noteText, scanned);
       setError(null);
     } catch {
+      // Text is already persisted by the fast timer; a failed scan just leaves
+      // the current highlights in place and will retry on the next edit.
       setError(ERROR_MESSAGE);
-      return;
     }
+  }
 
-    parseQuickEntryLine(api, line)
-      .then((parsed) => {
-        setError(null);
-        return updateEntry(id, parsed);
-      })
-      .catch(() => {
+  // Load + initial scan on mount.
+  useEffect(() => {
+    (async () => {
+      try {
+        const existing = await getLocalSession(todayDate());
+        const noteText = existing?.notes ?? '';
+        setText(noteText);
+        if (noteText) await runScan(noteText);
+      } catch {
         setError(ERROR_MESSAGE);
-      });
+      }
+    })();
+    return () => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      if (scanTimer.current) clearTimeout(scanTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleChangeText(next: string) {
+    setText(next);
+
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(() => {
+      // Fast path: never lose the raw note text, even if scanning lags/fails.
+      persist(next, entriesRef.current).then(
+        () => setError(null),
+        () => setError(ERROR_MESSAGE),
+      );
+    }, PERSIST_DELAY_MS);
+
+    if (scanTimer.current) clearTimeout(scanTimer.current);
+    scanTimer.current = setTimeout(() => {
+      void runScan(next);
+    }, SCAN_DELAY_MS);
   }
 
-  async function handleConfirmLine(line: ParsedLine & { id: string }) {
+  async function handleConfirm(entry: ScannedEntry) {
+    setPopoverId(null);
     try {
-      const exercise = await api.createExercise({ name: line.exerciseName!, muscles: line.muscles ?? [] });
-      await api.createAbbreviation({ token: line.unresolvedToken!, exerciseId: exercise.id });
-      await updateEntry(line.id, { status: 'resolved', exerciseId: exercise.id, parsedBy: 'LLM' });
+      const exercise = await api.createExercise({
+        name: entry.exerciseName!,
+        muscles: entry.muscles ?? [],
+      });
+      await api.createAbbreviation({ token: entry.unresolvedToken!, exerciseId: exercise.id });
+      const updated = entriesRef.current.map((e) =>
+        e.id === entry.id
+          ? { ...e, status: 'resolved' as const, exerciseId: exercise.id }
+          : e,
+      );
+      applyEntries(updated);
+      await persist(text, updated);
       setError(null);
     } catch {
       setError(ERROR_MESSAGE);
     }
   }
+
+  const spans: HighlightSpan[] = entries
+    .filter((e) => e.spanStart != null && e.spanEnd != null)
+    .map((e) => ({
+      start: e.spanStart as number,
+      end: e.spanEnd as number,
+      status: e.status,
+      entryId: e.id,
+    }));
+
+  const popoverEntry = entries.find((e) => e.id === popoverId) ?? null;
 
   return (
-    <View style={styles.container}>
-      {error && <Text style={styles.error}>{error}</Text>}
-      <FlatList
-        data={lines}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <ParsedLineRow line={item} onConfirm={handleConfirmLine} />}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Log a set..."
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+      <NotesEditor
         value={text}
-        onChangeText={setText}
-        onSubmitEditing={handleSubmit}
-        returnKeyType="done"
+        onChangeText={handleChangeText}
+        spans={spans}
+        onSpanPress={setPopoverId}
+        placeholder="Start typing your workout…"
       />
+      <Modal visible={popoverEntry != null} transparent animationType="fade" onRequestClose={() => setPopoverId(null)}>
+        <Pressable style={styles.backdrop} onPress={() => setPopoverId(null)}>
+          <View style={styles.popoverWrap}>
+            {popoverEntry ? (
+              <EntryPopover entry={popoverEntry} onConfirm={handleConfirm} onClose={() => setPopoverId(null)} />
+            ) : null}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 12, marginTop: 8 },
-  error: { color: '#a33', marginBottom: 8 },
+  container: { flex: 1, backgroundColor: colors.paper },
+  error: { color: colors.brick, paddingHorizontal: spacing.s4, paddingTop: spacing.s2 },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.2)', justifyContent: 'center', padding: spacing.s5 },
+  popoverWrap: { alignSelf: 'stretch' },
 });

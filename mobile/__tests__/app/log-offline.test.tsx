@@ -1,3 +1,4 @@
+// __tests__/app/log-offline.test.tsx
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import LogScreen from '../../app/(tabs)/index';
 import { useAuth } from '@/lib/auth';
@@ -15,19 +16,22 @@ beforeEach(() => {
 });
 
 describe('LogScreen offline-first behavior', () => {
-  it('keeps the raw entry saved and visible when the background parse rejects (offline/network failure)', async () => {
+  it('saves the raw note text even when the background parse rejects', async () => {
     const resolveLine = jest.fn().mockRejectedValue(new Error('offline'));
     (useAuth as jest.Mock).mockReturnValue({ api: { resolveLine } });
 
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Log a set...');
-    await fireEvent.changeText(input, 'BB RDL 40kg 8x3');
-    await fireEvent(input, 'submitEditing');
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    await fireEvent.changeText(input, 'did RDL 40kg 8x3');
 
-    await waitFor(async () => {
-      expect(screen.getByText('BB RDL 40kg 8x3')).toBeTruthy();
-      const session = await getLocalSession(todayDate());
-      expect(session?.entries).toHaveLength(1);
-    });
+    await waitFor(
+      async () => {
+        const session = await getLocalSession(todayDate());
+        expect(session?.notes).toBe('did RDL 40kg 8x3');
+      },
+      { timeout: 3000 },
+    );
+    // The editable text is still present on screen (not dropped by the failed scan).
+    expect(screen.getByDisplayValue('did RDL 40kg 8x3')).toBeTruthy();
   });
 });

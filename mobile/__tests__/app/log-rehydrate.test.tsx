@@ -1,3 +1,4 @@
+// __tests__/app/log-rehydrate.test.tsx
 import { render, screen, waitFor } from '@testing-library/react-native';
 import LogScreen from '../../app/(tabs)/index';
 import { useAuth } from '@/lib/auth';
@@ -12,24 +13,32 @@ function todayDate(): string {
 
 beforeEach(() => {
   resetDbForTests();
-  (useAuth as jest.Mock).mockReturnValue({ api: { resolveLine: jest.fn() } });
+  (useAuth as jest.Mock).mockReturnValue({
+    api: {
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
+        unresolvedTokens: [],
+      }),
+    },
+  });
 });
 
 describe('LogScreen rehydration', () => {
-  it('shows already-logged entries for today on mount, not a blank list', async () => {
+  it('shows the already-saved note text for today on mount', async () => {
     await upsertLocalSession({
       date: todayDate(),
-      notes: null,
+      notes: 'did RDL 40kg 8x3',
       synced: 1,
-      entries: [
-        { id: 'existing-1', exerciseId: 'ex-1', equipment: 'barbell', weightKg: 40, reps: 8, sets: 3, rawText: 'BB RDL 40kg 8x3', parsedBy: 'DICTIONARY', order: 0, synced: 1 },
-      ],
+      entries: [],
     });
 
     await render(<LogScreen />);
 
-    await waitFor(() => {
-      expect(screen.getByText('BB RDL 40kg 8x3')).toBeTruthy();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByDisplayValue('did RDL 40kg 8x3')).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
   });
 });

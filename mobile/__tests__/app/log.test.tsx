@@ -1,3 +1,4 @@
+// __tests__/app/log.test.tsx
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import LogScreen from '../../app/(tabs)/index';
 import { useAuth } from '@/lib/auth';
@@ -14,47 +15,30 @@ const mockResolveLine = jest.fn();
 
 beforeEach(() => {
   resetDbForTests();
-  mockResolveLine.mockReset().mockResolvedValue({ resolvedTokens: [], unresolvedTokens: [] });
+  mockResolveLine.mockReset().mockResolvedValue({
+    resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
+    unresolvedTokens: [],
+  });
   (useAuth as jest.Mock).mockReturnValue({ api: { resolveLine: mockResolveLine } });
 });
 
-describe('LogScreen', () => {
-  it('adds a parsed line to the list after submitting text', async () => {
+describe('LogScreen (notes-style)', () => {
+  it('highlights a recognized set after the debounced scan and persists it', async () => {
     await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('Start typing your workout…');
 
-    const input = screen.getByPlaceholderText('Log a set...');
-    await fireEvent.changeText(input, 'BB RDL 40kg 8x3');
-    await fireEvent(input, 'submitEditing');
+    await fireEvent.changeText(input, 'Warmup, then RDL 40kg 8x3');
 
-    await waitFor(() => {
-      expect(screen.getByText('BB RDL 40kg 8x3')).toBeTruthy();
-    });
-  });
-
-  it('keeps both entries when a second line is submitted before the first network round-trip resolves', async () => {
-    let resolveFirst!: (value: { resolvedTokens: never[]; unresolvedTokens: never[] }) => void;
-    let resolveSecond!: (value: { resolvedTokens: never[]; unresolvedTokens: never[] }) => void;
-    const firstResponse = new Promise((res) => { resolveFirst = res as typeof resolveFirst; });
-    const secondResponse = new Promise((res) => { resolveSecond = res as typeof resolveSecond; });
-    mockResolveLine.mockImplementationOnce(() => firstResponse).mockImplementationOnce(() => secondResponse);
-
-    await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Log a set...');
-
-    await fireEvent.changeText(input, 'BB RDL 40kg 8x3');
-    fireEvent(input, 'submitEditing');
-    await fireEvent.changeText(input, 'DB Curl 12kg 10x3');
-    fireEvent(input, 'submitEditing');
-
-    resolveSecond({ resolvedTokens: [], unresolvedTokens: [] });
-    resolveFirst({ resolvedTokens: [], unresolvedTokens: [] });
-
-    await waitFor(() => {
-      expect(screen.getByText('BB RDL 40kg 8x3')).toBeTruthy();
-      expect(screen.getByText('DB Curl 12kg 10x3')).toBeTruthy();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText('then RDL 40kg 8x3')).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
 
     const session = await getLocalSession(todayDate());
-    expect(session?.entries).toHaveLength(2);
+    expect(session?.notes).toBe('Warmup, then RDL 40kg 8x3');
+    expect(session?.entries).toHaveLength(1);
+    expect(session?.entries[0].exerciseId).toBe('ex-1');
   });
 });
