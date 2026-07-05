@@ -1,34 +1,73 @@
 // src/components/EntryPopover.tsx
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useState } from 'react';
+import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { colors, spacing, typography } from '@/lib/theme';
 import type { ScannedEntry } from '../parsing/scanNote';
 
-export function EntryPopover({
-  entry,
-  onConfirm,
-  onClose,
-}: {
-  entry: ScannedEntry;
-  onConfirm: (entry: ScannedEntry) => void;
-  onClose: () => void;
-}) {
-  const title = entry.exerciseName ?? entry.rawText;
-  const detail = [
+function detailFor(entry: ScannedEntry): string {
+  return [
     entry.weightKg != null ? `${entry.weightKg}kg` : null,
     entry.reps != null && entry.sets != null ? `${entry.reps}×${entry.sets}` : null,
   ]
     .filter(Boolean)
     .join('   ');
+}
+
+export function EntryPopover({
+  entries,
+  onConfirm,
+  onClose,
+}: {
+  entries: ScannedEntry[];
+  onConfirm: (entries: ScannedEntry[], modifierValue?: string) => void;
+  onClose: () => void;
+}) {
+  const [customValue, setCustomValue] = useState('');
+  const first = entries[0];
+  const title = first.exerciseName ?? first.rawText;
+  const needsConfirm = first.status === 'needs-confirm';
+  const clarifyingQuestion = first.clarifyingQuestion;
 
   return (
     <View style={styles.card}>
       <Text style={styles.title}>{title}</Text>
-      {detail ? <Text style={styles.detail}>{detail}</Text> : null}
-      {entry.status === 'needs-confirm' ? (
-        <Pressable onPress={() => onConfirm(entry)} style={styles.confirmBtn}>
+      {entries.map((entry) => {
+        const detail = detailFor(entry);
+        return detail ? (
+          <Text key={entry.id} style={styles.detail}>
+            {detail}
+          </Text>
+        ) : null;
+      })}
+
+      {needsConfirm && clarifyingQuestion ? (
+        <View style={styles.clarify}>
+          <Text style={styles.question}>{clarifyingQuestion.question}</Text>
+          {clarifyingQuestion.alternatives.map((alt) => (
+            <Pressable key={alt} onPress={() => onConfirm(entries, alt)} style={styles.altBtn}>
+              <Text style={styles.altLabel}>{alt}</Text>
+            </Pressable>
+          ))}
+          <TextInput
+            style={styles.customInput}
+            value={customValue}
+            onChangeText={setCustomValue}
+            placeholder="Or type your own…"
+            placeholderTextColor={colors.lead}
+          />
+          <Pressable
+            onPress={() => onConfirm(entries, customValue.trim() || undefined)}
+            style={styles.confirmBtn}
+          >
+            <Text style={styles.confirmLabel}>Save</Text>
+          </Pressable>
+        </View>
+      ) : needsConfirm ? (
+        <Pressable onPress={() => onConfirm(entries, undefined)} style={styles.confirmBtn}>
           <Text style={styles.confirmLabel}>Confirm exercise</Text>
         </Pressable>
       ) : null}
+
       <Pressable onPress={onClose} style={styles.closeBtn}>
         <Text style={styles.closeLabel}>Close</Text>
       </Pressable>
@@ -47,6 +86,23 @@ const styles = StyleSheet.create({
   },
   title: { ...typography.title, color: colors.graphite },
   detail: { ...typography.monoBodyS, color: colors.lead },
+  clarify: { gap: spacing.s2, marginTop: spacing.s2 },
+  question: { ...typography.bodyEmphasis, color: colors.graphite },
+  altBtn: {
+    borderWidth: 1,
+    borderColor: colors.graphite,
+    borderRadius: 6,
+    paddingVertical: spacing.s2,
+    alignItems: 'center',
+  },
+  altLabel: { ...typography.bodyEmphasis, color: colors.graphite },
+  customInput: {
+    borderWidth: 1,
+    borderColor: colors.ruleSoft,
+    borderRadius: 6,
+    padding: spacing.s2,
+    color: colors.graphite,
+  },
   confirmBtn: {
     backgroundColor: colors.graphite,
     borderRadius: 6,

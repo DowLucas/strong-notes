@@ -39,7 +39,7 @@ export default function LogScreen() {
   const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
   const [entries, setEntries] = useState<ScannedEntry[]>([]);
-  const [popoverId, setPopoverId] = useState<string | null>(null);
+  const [popoverGroupId, setPopoverGroupId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const entriesRef = useRef<ScannedEntry[]>([]);
@@ -125,18 +125,31 @@ export default function LogScreen() {
     }, SCAN_DELAY_MS);
   }
 
-  async function handleConfirm(entry: ScannedEntry) {
-    setPopoverId(null);
+  // A tapped span's entryId maps to its group — every set-group resolved
+  // from the same exercise name (on one line, plus any ⁃ continuations)
+  // shares one popover rather than opening one per highlighted number.
+  function handleSpanPress(entryId: string) {
+    const target = entriesRef.current.find((e) => e.id === entryId);
+    if (target) setPopoverGroupId(target.groupId);
+  }
+
+  async function handleConfirm(groupEntries: ScannedEntry[], modifierValue?: string) {
+    setPopoverGroupId(null);
+    const first = groupEntries[0];
     try {
-      const exercise = await api.createExercise({
-        name: entry.exerciseName!,
-        muscles: entry.muscles ?? [],
-      });
-      await api.createAbbreviation({ token: entry.unresolvedToken!, exerciseId: exercise.id });
+      // A clarifying-question answer (e.g. "Assisted" for "As") is woven into
+      // the exercise's own name, and its token gets its own dictionary entry
+      // pointing at the same exercise — alongside the exercise-name token
+      // (first.unresolvedToken) already bound below.
+      const finalName = modifierValue ? `${modifierValue} ${first.exerciseName}` : first.exerciseName!;
+      const exercise = await api.createExercise({ name: finalName, muscles: first.muscles ?? [] });
+      await api.createAbbreviation({ token: first.unresolvedToken!, exerciseId: exercise.id });
+      if (modifierValue && first.clarifyingQuestion) {
+        await api.createAbbreviation({ token: first.clarifyingQuestion.token, exerciseId: exercise.id });
+      }
+      const groupIds = new Set(groupEntries.map((e) => e.id));
       const updated = entriesRef.current.map((e) =>
-        e.id === entry.id
-          ? { ...e, status: 'resolved' as const, exerciseId: exercise.id }
-          : e,
+        groupIds.has(e.id) ? { ...e, status: 'resolved' as const, exerciseId: exercise.id } : e,
       );
       applyEntries(updated);
       await persist(text, updated);
@@ -155,7 +168,7 @@ export default function LogScreen() {
       entryId: e.id,
     }));
 
-  const popoverEntry = entries.find((e) => e.id === popoverId) ?? null;
+  const popoverEntries = entries.filter((e) => e.groupId === popoverGroupId);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -164,14 +177,23 @@ export default function LogScreen() {
         value={text}
         onChangeText={handleChangeText}
         spans={spans}
-        onSpanPress={setPopoverId}
+        onSpanPress={handleSpanPress}
         placeholder="Start typing your workout…"
       />
-      <Modal visible={popoverEntry != null} transparent animationType="fade" onRequestClose={() => setPopoverId(null)}>
-        <Pressable style={styles.backdrop} onPress={() => setPopoverId(null)}>
+      <Modal
+        visible={popoverEntries.length > 0}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPopoverGroupId(null)}
+      >
+        <Pressable style={styles.backdrop} onPress={() => setPopoverGroupId(null)}>
           <View style={styles.popoverWrap}>
-            {popoverEntry ? (
-              <EntryPopover entry={popoverEntry} onConfirm={handleConfirm} onClose={() => setPopoverId(null)} />
+            {popoverEntries.length > 0 ? (
+              <EntryPopover
+                entries={popoverEntries}
+                onConfirm={handleConfirm}
+                onClose={() => setPopoverGroupId(null)}
+              />
             ) : null}
           </View>
         </Pressable>

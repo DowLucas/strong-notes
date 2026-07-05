@@ -116,4 +116,55 @@ describe('LogScreen (notes-style)', () => {
       expect(session?.entries[0].id).toBe('entry-b');
     });
   });
+
+  it('confirms a clarifying-question answer: merges it into the exercise name and binds both tokens', async () => {
+    mockResolveLine.mockReset().mockResolvedValue({
+      resolvedTokens: [],
+      unresolvedTokens: ['As', 'Drip'],
+      llmGuess: {
+        exerciseName: 'Dip',
+        muscles: ['CHEST', 'ARMS'],
+        clarifyingQuestion: {
+          token: 'As',
+          question: 'What does "As" mean?',
+          alternatives: ['Assisted', 'As many reps as possible'],
+        },
+      },
+    });
+    const createExercise = jest.fn().mockResolvedValue({ id: 'ex-dip', name: 'Assisted Dip', category: 'ISOLATION', createdAt: '' });
+    const createAbbreviation = jest.fn().mockResolvedValue({});
+    (useAuth as jest.Mock).mockReturnValue({
+      api: { resolveLine: mockResolveLine, createExercise, createAbbreviation },
+    });
+
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    await fireEvent.changeText(input, 'As Drip 8x3 50kg');
+
+    // This line's single-group highlight spans the whole text, so a plain
+    // (not-yet-scanned) segment and a highlighted one render identical text —
+    // wait for it to actually become the tappable span (pointerEvents="auto"),
+    // not just for the text to exist.
+    await waitFor(
+      () => expect(screen.getByText('As Drip 8x3 50kg').props.pointerEvents).toBe('auto'),
+      { timeout: 3000 },
+    );
+
+    await fireEvent.press(screen.getByText('As Drip 8x3 50kg'));
+    await waitFor(() => expect(screen.getByText('What does "As" mean?')).toBeTruthy());
+
+    await fireEvent.press(screen.getByText('Assisted'));
+
+    await waitFor(() => {
+      expect(createExercise).toHaveBeenCalledWith({ name: 'Assisted Dip', muscles: ['CHEST', 'ARMS'] });
+      expect(createAbbreviation).toHaveBeenCalledWith({ token: 'Drip', exerciseId: 'ex-dip' });
+      expect(createAbbreviation).toHaveBeenCalledWith({ token: 'As', exerciseId: 'ex-dip' });
+    });
+
+    await waitFor(async () => {
+      const session = await getLocalSession(todayDate());
+      expect(session?.entries).toHaveLength(1);
+      expect(session?.entries[0].exerciseId).toBe('ex-dip');
+    });
+  });
 });
