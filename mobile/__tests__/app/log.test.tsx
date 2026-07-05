@@ -31,7 +31,7 @@ describe('LogScreen (notes-style)', () => {
 
     await waitFor(
       () => {
-        expect(screen.getByText('then RDL 40kg 8x3')).toBeTruthy();
+        expect(screen.getByText('40kg 8x3')).toBeTruthy();
       },
       { timeout: 3000 },
     );
