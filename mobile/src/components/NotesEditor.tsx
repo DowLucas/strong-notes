@@ -11,10 +11,19 @@ export type HighlightSpan = {
   entryId: string;
 };
 
+type SpanRect = { x: number; y: number; width: number; height: number };
+
+// How far the invisible tap target extends beyond a highlight's rendered
+// glyph bounds. React Native's Text doesn't support hitSlop, and nested Text
+// hit-testing is imprecise right at a word's edges — see the enlarged
+// Pressable rendered alongside each span in NotesEditor below.
+const HIT_PADDING = 8;
+
 function renderSegments(
   text: string,
   spans: HighlightSpan[],
   onSpanPress: (entryId: string) => void,
+  onSpanLayout: (entryId: string, rect: SpanRect) => void,
 ): ReactNode[] {
   const ordered = [...spans].sort((a, b) => a.start - b.start);
   const nodes: ReactNode[] = [];
@@ -36,6 +45,7 @@ function renderSegments(
         key={span.entryId}
         style={span.status === 'resolved' ? styles.resolved : styles.needsConfirm}
         onPress={() => onSpanPress(span.entryId)}
+        onLayout={(e) => onSpanLayout(span.entryId, e.nativeEvent.layout)}
         pointerEvents="auto"
       >
         {text.slice(span.start, span.end)}
@@ -68,6 +78,11 @@ export function NotesEditor({
   placeholder?: string;
 }) {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [spanRects, setSpanRects] = useState<Record<string, SpanRect>>({});
+
+  function handleSpanLayout(entryId: string, rect: SpanRect) {
+    setSpanRects((prev) => ({ ...prev, [entryId]: rect }));
+  }
 
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -105,7 +120,30 @@ export function NotesEditor({
         scrollEnabled={false}
       />
       <View style={styles.overlay} pointerEvents="box-none">
-        <Text style={styles.text}>{renderSegments(value, spans, onSpanPress)}</Text>
+        <Text style={styles.text}>{renderSegments(value, spans, onSpanPress, handleSpanLayout)}</Text>
+        {spans.map((span) => {
+          const rect = spanRects[span.entryId];
+          if (!rect) return null;
+          // An invisible, enlarged tap target measured from the highlight's
+          // own rendered position — decoupled from the text flow (absolutely
+          // positioned, so it can never shift the pixel-aligned overlay/
+          // TextInput sync) and independent of the nested Text's own
+          // (imprecise, un-enlargeable) hit area.
+          return (
+            <Pressable
+              key={`hit-${span.entryId}`}
+              testID={`span-hit-target-${span.entryId}`}
+              onPress={() => onSpanPress(span.entryId)}
+              style={{
+                position: 'absolute',
+                left: rect.x - HIT_PADDING,
+                top: rect.y - HIT_PADDING,
+                width: rect.width + HIT_PADDING * 2,
+                height: rect.height + HIT_PADDING * 2,
+              }}
+            />
+          );
+        })}
       </View>
       {keyboardVisible ? (
         <View style={styles.toolbar} pointerEvents="box-none">

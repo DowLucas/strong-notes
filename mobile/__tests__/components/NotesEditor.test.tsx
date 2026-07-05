@@ -19,6 +19,27 @@ describe('NotesEditor', () => {
     expect(onSpanPress).toHaveBeenCalledWith('e1');
   });
 
+  it('registers a tap slightly outside the rendered glyphs, via the measured enlarged hit target', async () => {
+    const onSpanPress = jest.fn();
+    await render(
+      <NotesEditor value={value} onChangeText={jest.fn()} spans={spans} onSpanPress={onSpanPress} placeholder="Start typing…" />,
+    );
+
+    const span = screen.getByText('then RDL 40kg 8x3');
+    // Report the span's measured layout, as RN would after it renders —
+    // this is what makes the enlarged Pressable appear.
+    await act(async () => {
+      fireEvent(span, 'layout', { nativeEvent: { layout: { x: 40, y: 20, width: 100, height: 20 } } });
+    });
+
+    // A real hit-target Pressable should now exist beyond the exact glyph
+    // bounds, enlarged by the hit-padding around the measured layout.
+    const hitTarget = screen.getByTestId('span-hit-target-e1');
+    expect(hitTarget.props.style).toMatchObject({ left: 40 - 8, top: 20 - 8, width: 100 + 16, height: 20 + 16 });
+    await fireEvent.press(hitTarget);
+    expect(onSpanPress).toHaveBeenCalledWith('e1');
+  });
+
   it('exposes the editable text and reports changes', async () => {
     const onChangeText = jest.fn();
     await render(
