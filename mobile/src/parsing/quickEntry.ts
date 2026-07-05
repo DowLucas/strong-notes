@@ -1,4 +1,4 @@
-import type { ApiClient, MuscleGroup } from '@/lib/api';
+import type { ApiClient, ClarifyingQuestion, MuscleGroup } from '@/lib/api';
 import { getCachedAbbreviations } from '../db/abbreviationsRepo';
 
 export type ParsedLine = {
@@ -12,6 +12,7 @@ export type ParsedLine = {
   sets?: number;
   muscles?: MuscleGroup[];
   unresolvedToken?: string;
+  clarifyingQuestion?: ClarifyingQuestion;
   parsedBy: 'DICTIONARY' | 'LLM';
 };
 
@@ -70,6 +71,15 @@ export async function parseQuickEntryLine(api: ApiClient, line: string): Promise
   const numeric = parseNumericTokens(line);
 
   if (response.llmGuess) {
+    // The clarifying-question token (if any) is a leftover modifier the LLM
+    // flagged as ambiguous — it is NOT the exercise-name token. Whatever
+    // remains after excluding it is what should get bound to the exercise on
+    // confirm; without a clarifying question, this is unchanged from before
+    // (unresolvedTokens[0]).
+    const clarifyingQuestion = response.llmGuess.clarifyingQuestion ?? undefined;
+    const exerciseTokens = clarifyingQuestion
+      ? response.unresolvedTokens.filter((t) => t !== clarifyingQuestion.token)
+      : response.unresolvedTokens;
     return {
       rawText: line,
       status: 'needs-confirm',
@@ -79,7 +89,8 @@ export async function parseQuickEntryLine(api: ApiClient, line: string): Promise
       reps: response.llmGuess.reps ?? numeric.reps,
       sets: response.llmGuess.sets ?? numeric.sets,
       muscles: response.llmGuess.muscles,
-      unresolvedToken: response.unresolvedTokens[0],
+      unresolvedToken: exerciseTokens[0] ?? response.unresolvedTokens[0],
+      clarifyingQuestion,
       parsedBy: 'LLM',
     };
   }

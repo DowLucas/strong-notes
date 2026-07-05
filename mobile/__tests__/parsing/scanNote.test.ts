@@ -157,4 +157,94 @@ describe('scanNote', () => {
     expect(entries).toEqual([]);
     expect((api.resolveLine as jest.Mock).mock.calls).toHaveLength(0);
   });
+
+  it('shares one groupId across every set-group on the same line', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const entries = await scanNote(api, 'BB RDL 40kgx8 50kgx8x4 40kgx8x3', []);
+
+    expect(entries).toHaveLength(3);
+    expect(entries[0].groupId).toBeTruthy();
+    expect(entries[1].groupId).toBe(entries[0].groupId);
+    expect(entries[2].groupId).toBe(entries[0].groupId);
+  });
+
+  it('shares the same groupId between a line and its ⁃ continuation', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'Squat', type: 'exercise', exerciseId: 'ex-sq' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const text = 'BB Squat barx12x2\n    ⁃    50kgx8 60kgx6';
+    const entries = await scanNote(api, text, []);
+
+    expect(entries).toHaveLength(3);
+    expect(entries.every((e) => e.groupId === entries[0].groupId)).toBe(true);
+  });
+
+  it('gives different lines/exercises different groupIds', async () => {
+    const api = fakeApi({
+      resolveLine: jest
+        .fn()
+        .mockResolvedValueOnce({
+          resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
+          unresolvedTokens: [],
+        })
+        .mockResolvedValueOnce({
+          resolvedTokens: [{ token: 'BP', type: 'exercise', exerciseId: 'ex-2' }],
+          unresolvedTokens: [],
+        }),
+    });
+    const entries = await scanNote(api, 'RDL 40kg 8x3\nBP 50kg 5x5', []);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0].groupId).not.toBe(entries[1].groupId);
+  });
+
+  it('keeps a stable groupId across a re-scan when the line is unchanged', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const text = 'BB RDL 40kgx8 50kgx8x4';
+    const first = await scanNote(api, text, []);
+    const second = await scanNote(api, text, first);
+
+    expect(second[0].groupId).toBe(first[0].groupId);
+    expect(second[1].groupId).toBe(first[1].groupId);
+  });
+
+  it('propagates the clarifying question onto every entry sharing that resolved name', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [],
+        unresolvedTokens: ['As', 'Drip'],
+        llmGuess: {
+          exerciseName: 'Dip',
+          muscles: ['CHEST', 'ARMS'],
+          clarifyingQuestion: {
+            token: 'As',
+            question: 'What does "As" mean?',
+            alternatives: ['Assisted', 'As many reps as possible'],
+          },
+        },
+      }),
+    });
+    const entries = await scanNote(api, 'As Drip 8x3 50kg', []);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].status).toBe('needs-confirm');
+    expect(entries[0].clarifyingQuestion).toEqual({
+      token: 'As',
+      question: 'What does "As" mean?',
+      alternatives: ['Assisted', 'As many reps as possible'],
+    });
+  });
 });

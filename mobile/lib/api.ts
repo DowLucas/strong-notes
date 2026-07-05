@@ -88,6 +88,12 @@ export interface ResolvedToken {
   modifierValue?: string;
 }
 
+export interface ClarifyingQuestion {
+  token: string;
+  question: string;
+  alternatives: string[];
+}
+
 export interface LlmGuess {
   exerciseName: string;
   equipment?: string | null;
@@ -95,6 +101,7 @@ export interface LlmGuess {
   reps?: number | null;
   sets?: number | null;
   muscles?: MuscleGroup[];
+  clarifyingQuestion?: ClarifyingQuestion | null;
 }
 
 export interface ResolveLineResponse {

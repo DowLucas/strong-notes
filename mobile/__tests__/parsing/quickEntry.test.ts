@@ -62,4 +62,56 @@ describe('parseQuickEntryLine', () => {
     expect(result.muscles).toEqual(['GLUTES', 'CORE']);
     expect(result.parsedBy).toBe('LLM');
   });
+
+  it('binds the exercise-name token, not the clarifying-question token, as unresolvedToken', async () => {
+    // "As Drip 40kg 8x3": neither "As" nor "Drip" is in the dictionary, so
+    // both are unresolved. The LLM identifies "Drip" as the exercise (Dip)
+    // and flags "As" as the ambiguous leftover — unresolvedToken must bind
+    // to "Drip" (the exercise), not just unresolvedTokens[0] ("As"), or
+    // confirming would wrongly teach the dictionary that "As" means Dip.
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [],
+        unresolvedTokens: ['As', 'Drip'],
+        llmGuess: {
+          exerciseName: 'Dip',
+          equipment: null,
+          weightKg: null,
+          reps: null,
+          sets: null,
+          muscles: ['CHEST', 'ARMS'],
+          clarifyingQuestion: {
+            token: 'As',
+            question: 'What does "As" mean?',
+            alternatives: ['Assisted', 'As many reps as possible'],
+          },
+        },
+      }),
+    });
+
+    const result = await parseQuickEntryLine(api, 'As Drip 40kg 8x3');
+
+    expect(result.status).toBe('needs-confirm');
+    expect(result.unresolvedToken).toBe('Drip');
+    expect(result.clarifyingQuestion).toEqual({
+      token: 'As',
+      question: 'What does "As" mean?',
+      alternatives: ['Assisted', 'As many reps as possible'],
+    });
+  });
+
+  it('falls back to unresolvedTokens[0] when there is no clarifying question (unchanged behavior)', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [],
+        unresolvedTokens: ['CRABWALK'],
+        llmGuess: { exerciseName: 'Crab Walk', equipment: null, weightKg: null, reps: 8, sets: 2, muscles: ['GLUTES', 'CORE'] },
+      }),
+    });
+
+    const result = await parseQuickEntryLine(api, 'CRABWALK 8x2');
+
+    expect(result.unresolvedToken).toBe('CRABWALK');
+    expect(result.clarifyingQuestion).toBeUndefined();
+  });
 });
