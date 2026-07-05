@@ -6,5 +6,6 @@ module.exports = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
     '^expo-sqlite$': '<rootDir>/test-shims/expo-sqlite.js',
+    '^react-native-safe-area-context$': '<rootDir>/test-shims/react-native-safe-area-context.js',
   },
 };

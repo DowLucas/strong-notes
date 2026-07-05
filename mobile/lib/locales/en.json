@@ -18,11 +18,19 @@
     "network": "Couldn't reach the server. Check your connection and try again.",
     "unauthorized": "Your session has expired. Please sign in again."
   },
+  "log": {
+    "title": "Log"
+  },
   "home": {
     "greeting": "Hello, {{name}}.",
     "greetingFallback": "Hello.",
     "signedInAs": "Signed in as {{email}}",
     "subtitle": "You're signed in. This is your starting point — build your app from here."
+  },
+  "history": {
+    "title": "History",
+    "emptyTitle": "No sessions logged yet",
+    "emptyBody": "Sessions you log will show up here."
   },
   "languagePicker": {
     "empty": "No languages match.",
@@ -35,6 +43,16 @@
       "title": "About",
       "version": "Version {{version}}"
     }
+  },
+  "stats": {
+    "title": "Stats",
+    "noGoalTitle": "No goal set yet",
+    "noGoalBody": "Pick a preset below or describe your goal to start tracking.",
+    "presetHypertrophy": "Hypertrophy",
+    "presetStrength": "Strength",
+    "presetEndurance": "Endurance",
+    "goalPlaceholder": "Or describe your goal…",
+    "setGoal": "Set goal"
   },
   "signIn": {
     "checkEmail": "Check your email",
@@ -59,6 +77,10 @@
   "you": {
     "about": "About the app",
     "accountEyebrow": "account",
+    "abbreviationsEyebrow": "dictionary",
+    "abbreviations": {
+      "confirm": "Confirm"
+    },
     "avatar": {
       "choosePhoto": "Choose from library",
       "chooseTitle": "Profile photo",
