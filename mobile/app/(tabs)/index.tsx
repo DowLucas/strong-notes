@@ -46,6 +46,10 @@ export default function LogScreen() {
   const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Monotonic counter guarding against out-of-order scan completion: if a
+  // slower, earlier-started scan resolves after a faster, later one, its
+  // (stale) result must be discarded rather than overwriting the newer state.
+  const scanGenerationRef = useRef(0);
 
   function applyEntries(next: ScannedEntry[]) {
     entriesRef.current = next;
@@ -66,12 +70,18 @@ export default function LogScreen() {
   }
 
   async function runScan(noteText: string): Promise<void> {
+    const generation = ++scanGenerationRef.current;
     try {
       const scanned = await scanNote(api, noteText, entriesRef.current);
+      // A newer scan may have started (and possibly already applied its own
+      // result) while this one was awaiting the network — if so, this result
+      // is stale and must be dropped, not applied on top of the newer state.
+      if (generation !== scanGenerationRef.current) return;
       applyEntries(scanned);
       await persist(noteText, scanned);
       setError(null);
     } catch {
+      if (generation !== scanGenerationRef.current) return;
       // Text is already persisted by the fast timer; a failed scan just leaves
       // the current highlights in place and will retry on the next edit.
       setError(ERROR_MESSAGE);
