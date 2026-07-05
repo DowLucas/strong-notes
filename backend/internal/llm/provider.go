@@ -8,12 +8,23 @@ import (
 )
 
 type LineGuess struct {
-	ExerciseName string   `json:"exerciseName"`
-	Equipment    *string  `json:"equipment"`
-	WeightKg     *float64 `json:"weightKg"`
-	Reps         *int     `json:"reps"`
-	Sets         *int     `json:"sets"`
-	Muscles      []string `json:"muscles"`
+	ExerciseName       string              `json:"exerciseName"`
+	Equipment          *string             `json:"equipment"`
+	WeightKg           *float64            `json:"weightKg"`
+	Reps               *int                `json:"reps"`
+	Sets               *int                `json:"sets"`
+	Muscles            []string            `json:"muscles"`
+	ClarifyingQuestion *ClarifyingQuestion `json:"clarifyingQuestion"`
+}
+
+// ClarifyingQuestion lets the LLM flag one leftover unresolved token (e.g.
+// "As" in "As Dip") as ambiguous rather than silently guessing at it — the
+// client can then ask the user to pick one of two suggested meanings or type
+// their own, and save the answer to their personal dictionary.
+type ClarifyingQuestion struct {
+	Token        string   `json:"token"`
+	Question     string   `json:"question"`
+	Alternatives []string `json:"alternatives"`
 }
 
 type GoalGuess struct {

@@ -225,6 +225,55 @@ func TestResolveLine_LLMFallback(t *testing.T) {
 	}
 }
 
+// TestResolveLine_ClarifyingQuestionRoundTrips proves the LLM's optional
+// clarifyingQuestion (for an ambiguous leftover modifier token like "As" in
+// "As Dip") survives JSON encoding through the handler with camelCase keys —
+// the mobile client's confirm-loop depends on this exact shape.
+func TestResolveLine_ClarifyingQuestionRoundTrips(t *testing.T) {
+	pool := testutil.SharedDB(t)
+	q := db.New(pool)
+	userID := ulid.New()
+	testutil.InsertTestUser(t, pool, userID, "resolve-test-clarify@example.com")
+
+	fake := &fakeProvider{
+		lineGuess: llm.LineGuess{
+			ExerciseName: "Dip",
+			ClarifyingQuestion: &llm.ClarifyingQuestion{
+				Token:        "As",
+				Question:     `What does "As" mean?`,
+				Alternatives: []string{"Assisted", "As in \"as many reps as possible\""},
+			},
+		},
+	}
+
+	h := NewResolveHandler(q, fake)
+	body := strings.NewReader(`{"line":"As Drip 40kg 8x3"}`)
+	req := withClaims(httptest.NewRequest(http.MethodPost, "/api/resolve/line", body), userID)
+	w := httptest.NewRecorder()
+
+	h.ResolveLine(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	respBody := w.Body.String()
+	if !strings.Contains(respBody, `"clarifyingQuestion":{"token":"As"`) {
+		t.Errorf("expected camelCase clarifyingQuestion object, got %s", respBody)
+	}
+	var resp struct {
+		LLMGuess llm.LineGuess `json:"llmGuess"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.LLMGuess.ClarifyingQuestion == nil {
+		t.Fatalf("expected clarifyingQuestion to round-trip, got nil")
+	}
+	if len(resp.LLMGuess.ClarifyingQuestion.Alternatives) != 2 {
+		t.Errorf("expected 2 alternatives, got %+v", resp.LLMGuess.ClarifyingQuestion.Alternatives)
+	}
+}
+
 func TestResolveLine_MissingLine(t *testing.T) {
 	pool := testutil.SharedDB(t)
 	q := db.New(pool)
