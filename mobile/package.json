@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "start:tailscale": "EXPO_PUBLIC_API_URL=http://$(tailscale ip -4 | head -1):8080 REACT_NATIVE_PACKAGER_HOSTNAME=$(tailscale ip -4 | head -1) expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",

@@ -1,5 +1,12 @@
 import type { ExpoConfig } from 'expo/config';
 
+const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080';
+// Plain-HTTP dev backend (localhost or a Tailscale/LAN IP): both iOS ATS and
+// Android 9+ block cleartext traffic by default, so exempt it here. A
+// production build points EXPO_PUBLIC_API_URL at an https:// URL, which
+// leaves this false and both platforms' default secure policy untouched.
+const isDevHttpBackend = apiBaseUrl.startsWith('http://');
+
 const config: ExpoConfig = {
   name: 'Strong Notes',
   slug: 'strong-notes',
@@ -18,6 +25,7 @@ const config: ExpoConfig = {
       ITSAppUsesNonExemptEncryption: false,
       NSPhotoLibraryUsageDescription:
         'Allow Scaffold to access your photo library to upload a profile picture.',
+      ...(isDevHttpBackend ? { NSAppTransportSecurity: { NSAllowsArbitraryLoads: true } } : {}),
     },
   },
   android: {
@@ -26,6 +34,7 @@ const config: ExpoConfig = {
       backgroundColor: '#F0E5CC',
     },
     package: 'com.dowlucas.strongnotes',
+    ...(isDevHttpBackend ? { usesCleartextTraffic: true } : {}),
   },
   web: {
     bundler: 'metro',
@@ -73,9 +82,7 @@ const config: ExpoConfig = {
     typedRoutes: true,
   },
   extra: {
-    // Single backend base URL. Defaults to localhost for dev; override per
-    // build with EXPO_PUBLIC_API_URL.
-    apiBaseUrl: process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080',
+    apiBaseUrl,
   },
 };
 

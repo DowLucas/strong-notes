@@ -15,7 +15,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { createClient, defaultBaseUrl, type ApiClient, type User } from './api';
+import { createClient, defaultBaseUrl, type ApiClient } from './api';
 import {
   clearSession,
   loadSession,
@@ -73,21 +73,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [applySession]);
 
   const signInWithToken = useCallback(
-    async (token: string) => {
-      // Make the token live before the /api/me call so the request is authed.
-      tokenRef.current = token;
-      let user: User;
-      try {
-        user = await api.getMe();
-      } catch (err) {
-        tokenRef.current = session?.token ?? null;
-        throw err;
-      }
+    async (magicLinkToken: string) => {
+      // The magic-link token is single-use and only good for the verify
+      // exchange — it must be traded in for a session JWT before any
+      // authenticated request (e.g. /api/me) will accept it.
+      const { token, user } = await api.verify(magicLinkToken);
       const next: Session = { token, user };
       await saveSession(next);
       applySession(next);
     },
-    [api, applySession, session],
+    [api, applySession],
   );
 
   const signOut = useCallback(async () => {

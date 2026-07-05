@@ -4,3 +4,4 @@ build-errors.log
 .env.local
 bin/
 .pgdata/
+docker-compose.override.yml
