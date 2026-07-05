@@ -37,7 +37,14 @@ export async function scanNote(
       continue;
     }
 
-    const parsed = await parseQuickEntryLine(api, candidate.text);
+    // A single clause that can't be resolved (offline, or the LLM endpoint is
+    // down / 500s) must not fail the whole scan — it just stays unhighlighted.
+    let parsed;
+    try {
+      parsed = await parseQuickEntryLine(api, candidate.text);
+    } catch {
+      continue;
+    }
     if (parsed.status !== 'resolved' && parsed.status !== 'needs-confirm') continue;
 
     result.push({

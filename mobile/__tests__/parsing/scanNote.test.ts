@@ -49,6 +49,25 @@ describe('scanNote', () => {
     expect(second[0].id).toBe(first[0].id); // stable id across re-scan
   });
 
+  it('skips a clause whose resolution throws (offline/LLM down) without rejecting the whole scan', async () => {
+    const api = fakeApi({
+      resolveLine: jest
+        .fn()
+        .mockResolvedValueOnce({
+          resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
+          unresolvedTokens: [],
+        })
+        .mockRejectedValueOnce(Object.assign(new Error('llm resolve failed'), { status: 500 })),
+    });
+
+    // First clause resolves; second clause's resolve() throws (500). The scan
+    // must not reject — it keeps the good entry and simply omits the failed one.
+    const entries = await scanNote(api, 'RDL 40kg 8x3, MysteryMove 20kg 5x5', []);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].exerciseId).toBe('ex-1');
+  });
+
   it('surfaces needs-confirm metadata for an LLM guess', async () => {
     const api = fakeApi({
       resolveLine: jest.fn().mockResolvedValue({
