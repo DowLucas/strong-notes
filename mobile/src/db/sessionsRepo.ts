@@ -11,6 +11,8 @@ export type LocalSetEntry = {
   parsedBy: 'DICTIONARY' | 'LLM';
   order: number;
   synced: 0 | 1;
+  spanStart?: number | null;
+  spanEnd?: number | null;
 };
 
 export type LocalSession = {
@@ -31,8 +33,8 @@ export async function upsertLocalSession(session: LocalSession): Promise<void> {
     await db.runAsync(`DELETE FROM set_entries WHERE session_date = ?`, [session.date]);
     for (const entry of session.entries) {
       await db.runAsync(
-        `INSERT INTO set_entries (id, session_date, exercise_id, equipment, weight_kg, reps, sets, raw_text, parsed_by, entry_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO set_entries (id, session_date, exercise_id, equipment, weight_kg, reps, sets, raw_text, parsed_by, entry_order, span_start, span_end)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           entry.id,
           session.date,
@@ -44,6 +46,8 @@ export async function upsertLocalSession(session: LocalSession): Promise<void> {
           entry.rawText,
           entry.parsedBy,
           entry.order,
+          entry.spanStart ?? null,
+          entry.spanEnd ?? null,
         ]
       );
     }
@@ -61,6 +65,8 @@ async function loadEntries(db: Awaited<ReturnType<typeof getDb>>, date: string):
     raw_text: string;
     parsed_by: 'DICTIONARY' | 'LLM';
     entry_order: number;
+    span_start: number | null;
+    span_end: number | null;
   }>(`SELECT * FROM set_entries WHERE session_date = ? ORDER BY entry_order ASC`, [date]);
 
   return rows.map((r) => ({
@@ -74,6 +80,8 @@ async function loadEntries(db: Awaited<ReturnType<typeof getDb>>, date: string):
     parsedBy: r.parsed_by,
     order: r.entry_order,
     synced: 0 as const,
+    spanStart: r.span_start,
+    spanEnd: r.span_end,
   }));
 }
 

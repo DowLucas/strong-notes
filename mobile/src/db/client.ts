@@ -20,7 +20,9 @@ async function migrate(db: SQLite.SQLiteDatabase) {
       sets INTEGER,
       raw_text TEXT NOT NULL,
       parsed_by TEXT NOT NULL,
-      entry_order INTEGER NOT NULL
+      entry_order INTEGER NOT NULL,
+      span_start INTEGER,
+      span_end INTEGER
     );
     CREATE TABLE IF NOT EXISTS abbreviations_cache (
       id TEXT PRIMARY KEY,
@@ -31,6 +33,24 @@ async function migrate(db: SQLite.SQLiteDatabase) {
       source TEXT NOT NULL
     );
   `);
+
+  // Backfill columns for databases created before span tracking existed.
+  // CREATE TABLE IF NOT EXISTS won't alter an existing table, so add
+  // explicitly and ignore the "duplicate column" case.
+  await addColumnIfMissing(db, 'set_entries', 'span_start', 'INTEGER');
+  await addColumnIfMissing(db, 'set_entries', 'span_end', 'INTEGER');
+}
+
+async function addColumnIfMissing(
+  db: SQLite.SQLiteDatabase,
+  table: string,
+  column: string,
+  type: string,
+): Promise<void> {
+  const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
+  if (!cols.some((c) => c.name === column)) {
+    await db.runAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
 }
 
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
