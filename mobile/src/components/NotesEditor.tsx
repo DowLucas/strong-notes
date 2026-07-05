@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { View, Text, TextInput, Pressable, Keyboard, StyleSheet } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Feather } from '@expo/vector-icons';
@@ -67,6 +67,17 @@ export function NotesEditor({
   onSpanPress: (entryId: string) => void;
   placeholder?: string;
 }) {
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   // Layer order matters. The TextInput is rendered first (underneath) and is
   // the real editing surface, with transparent text so the styled overlay
   // shows through and its caret (selectionColor) peeks through the gaps. The
@@ -96,18 +107,20 @@ export function NotesEditor({
       <View style={styles.overlay} pointerEvents="box-none">
         <Text style={styles.text}>{renderSegments(value, spans, onSpanPress)}</Text>
       </View>
-      <View style={styles.toolbar} pointerEvents="box-none">
-        <Pressable
-          onPress={() => Keyboard.dismiss()}
-          accessibilityLabel="Done"
-          accessibilityRole="button"
-          style={styles.doneButton}
-        >
-          <BlurView intensity={40} tint="light" style={styles.doneBlur}>
-            <Feather name="check" size={26} color={colors.graphite} />
-          </BlurView>
-        </Pressable>
-      </View>
+      {keyboardVisible ? (
+        <View style={styles.toolbar} pointerEvents="box-none">
+          <Pressable
+            onPress={() => Keyboard.dismiss()}
+            accessibilityLabel="Done"
+            accessibilityRole="button"
+            style={styles.doneButton}
+          >
+            <BlurView intensity={40} tint="light" style={styles.doneBlur}>
+              <Feather name="check" size={26} color={colors.graphite} />
+            </BlurView>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }

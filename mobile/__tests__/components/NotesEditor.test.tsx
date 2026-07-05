@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import { Keyboard } from 'react-native';
 import { NotesEditor, type HighlightSpan } from '@/src/components/NotesEditor';
 
@@ -50,12 +50,44 @@ describe('NotesEditor', () => {
 
   it('provides a circular Done checkmark button that dismisses the keyboard', async () => {
     const dismissSpy = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+    const listeners: Record<string, () => void> = {};
+    jest.spyOn(Keyboard, 'addListener').mockImplementation(((event: string, cb: () => void) => {
+      listeners[event] = cb;
+      return { remove: jest.fn() };
+    }) as unknown as typeof Keyboard.addListener);
+
     await render(
       <NotesEditor value={value} onChangeText={jest.fn()} spans={[]} onSpanPress={jest.fn()} placeholder="Start typing…" />,
     );
 
+    // Simulate the keyboard opening — only then should Done appear.
+    await act(async () => listeners['keyboardDidShow']?.());
     await fireEvent.press(screen.getByLabelText('Done'));
     expect(dismissSpy).toHaveBeenCalled();
+
     dismissSpy.mockRestore();
+    jest.restoreAllMocks();
+  });
+
+  it('hides the Done button until the keyboard is shown, and hides it again once dismissed', async () => {
+    const listeners: Record<string, () => void> = {};
+    jest.spyOn(Keyboard, 'addListener').mockImplementation(((event: string, cb: () => void) => {
+      listeners[event] = cb;
+      return { remove: jest.fn() };
+    }) as unknown as typeof Keyboard.addListener);
+
+    await render(
+      <NotesEditor value={value} onChangeText={jest.fn()} spans={[]} onSpanPress={jest.fn()} placeholder="Start typing…" />,
+    );
+
+    expect(screen.queryByLabelText('Done')).toBeNull();
+
+    await act(async () => listeners['keyboardDidShow']?.());
+    expect(screen.getByLabelText('Done')).toBeTruthy();
+
+    await act(async () => listeners['keyboardDidHide']?.());
+    expect(screen.queryByLabelText('Done')).toBeNull();
+
+    jest.restoreAllMocks();
   });
 });
