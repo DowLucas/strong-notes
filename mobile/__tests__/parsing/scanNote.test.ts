@@ -26,7 +26,9 @@ describe('scanNote', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].status).toBe('resolved');
     expect(entries[0].exerciseId).toBe('ex-1');
-    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe('then RDL 40kg 8x3');
+    // Under line-based group parsing, only the set-group token is highlighted
+    // (plan Task 3: 'Warmup, then RDL' is the namePart; the span is the group).
+    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe('40kg 8x3');
   });
 
   it('drops clauses that resolve to unresolved (no highlight)', async () => {
@@ -81,5 +83,62 @@ describe('scanNote', () => {
     expect(entries[0].exerciseName).toBe('Crab Walk');
     expect(entries[0].unresolvedToken).toBe('CRABWALK');
     expect(entries[0].muscles).toEqual(['GLUTES', 'CORE']);
+  });
+
+  it('emits one entry per packed set-group, sharing the resolved exercise', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const entries = await scanNote(api, 'BB RDL 40kgx8 50kgx8x4 40kgx8x3', []);
+
+    expect(entries).toHaveLength(3);
+    expect(entries.every((e) => e.exerciseId === 'ex-1')).toBe(true);
+    expect(entries.map((e) => [e.weightKg, e.reps, e.sets])).toEqual([
+      [40, 8, 1],
+      [50, 8, 4],
+      [40, 8, 3],
+    ]);
+    // Name resolved once, not once per group.
+    expect((api.resolveLine as jest.Mock).mock.calls).toHaveLength(1);
+  });
+
+  it('spans each group token individually within the line', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const text = 'BB RDL 40kgx8 50kgx8x4';
+    const entries = await scanNote(api, text, []);
+    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe('40kgx8');
+    expect(text.slice(entries[1].spanStart!, entries[1].spanEnd!)).toBe('50kgx8x4');
+  });
+
+  it('inherits the exercise from the previous line into a ⁃ continuation line', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'Squat', type: 'exercise', exerciseId: 'ex-sq' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const text = 'BB Squat barx12x2\n    ⁃    50kgx8 60kgx6';
+    const entries = await scanNote(api, text, []);
+
+    // 2 groups on line 1 (barx12x2 -> 1 group) + 2 on the continuation = 3.
+    expect(entries).toHaveLength(3);
+    expect(entries.every((e) => e.exerciseId === 'ex-sq')).toBe(true);
+    // The name is resolved once and reused for the continuation line.
+    expect((api.resolveLine as jest.Mock).mock.calls).toHaveLength(1);
+  });
+
+  it('leaves a continuation line unhighlighted when no preceding exercise exists', async () => {
+    const api = fakeApi({ resolveLine: jest.fn() });
+    const entries = await scanNote(api, '    ⁃    50kgx8 60kgx6', []);
+    expect(entries).toEqual([]);
+    expect((api.resolveLine as jest.Mock).mock.calls).toHaveLength(0);
   });
 });

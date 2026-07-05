@@ -1,8 +1,8 @@
 // src/parsing/scanNote.ts
 import type { ApiClient, MuscleGroup } from '@/lib/api';
 import type { LocalSetEntry } from '../db/sessionsRepo';
-import { extractCandidates } from './extractCandidates';
-import { parseQuickEntryLine } from './quickEntry';
+import { parseSetGroups, type SetGroup } from './parseSetGroups';
+import { parseQuickEntryLine, type ParsedLine } from './quickEntry';
 
 export type ScannedEntry = LocalSetEntry & {
   status: 'resolved' | 'needs-confirm';
@@ -17,54 +17,86 @@ function makeEntryId(): string {
   return `entry-${Date.now()}-${idCounter}`;
 }
 
+// The subset of a resolved name we carry onto each of its set-groups.
+type NameResolution = Pick<
+  ParsedLine,
+  'status' | 'exerciseId' | 'equipment' | 'parsedBy' | 'exerciseName' | 'muscles' | 'unresolvedToken'
+>;
+
+function buildEntry(
+  group: SetGroup,
+  lineStart: number,
+  name: NameResolution,
+  order: number,
+  reuseId?: string,
+): ScannedEntry {
+  return {
+    id: reuseId ?? makeEntryId(),
+    exerciseId: name.exerciseId ?? null,
+    equipment: name.equipment ?? null,
+    weightKg: group.weightKg,
+    reps: group.reps,
+    sets: group.sets,
+    rawText: group.token,
+    parsedBy: name.parsedBy,
+    order,
+    synced: 0,
+    spanStart: lineStart + group.start,
+    spanEnd: lineStart + group.end,
+    status: name.status === 'needs-confirm' ? 'needs-confirm' : 'resolved',
+    exerciseName: name.exerciseName,
+    muscles: name.muscles,
+    unresolvedToken: name.unresolvedToken,
+  };
+}
+
 export async function scanNote(
   api: ApiClient,
   text: string,
   previous: ScannedEntry[],
 ): Promise<ScannedEntry[]> {
-  const candidates = extractCandidates(text);
   const prevByText = new Map(previous.map((e) => [e.rawText, e]));
   const result: ScannedEntry[] = [];
 
-  for (let i = 0; i < candidates.length; i += 1) {
-    const candidate = candidates[i];
+  // Resolve each distinct name prefix once per scan.
+  const nameCache = new Map<string, NameResolution | null>();
+  // The last successfully-resolved exercise, for ⁃ continuation lines.
+  let lastName: NameResolution | null = null;
 
-    // Unchanged clause text → reuse the prior resolution (and its stable id +
-    // any confirm state); only the span offsets and order can have shifted.
-    const reuse = prevByText.get(candidate.text);
-    if (reuse) {
-      result.push({ ...reuse, spanStart: candidate.start, spanEnd: candidate.end, order: i });
-      continue;
+  let lineStart = 0;
+  const lines = text.split('\n');
+  for (let li = 0; li < lines.length; li += 1) {
+    const line = lines[li];
+    const { namePart, groups } = parseSetGroups(line);
+
+    if (groups.length > 0) {
+      let name: NameResolution | null;
+      if (namePart === '') {
+        // Continuation line — inherit the previous line's exercise.
+        name = lastName;
+      } else if (nameCache.has(namePart)) {
+        name = nameCache.get(namePart) ?? null;
+      } else {
+        try {
+          const parsed = await parseQuickEntryLine(api, namePart);
+          name =
+            parsed.status === 'resolved' || parsed.status === 'needs-confirm' ? parsed : null;
+        } catch {
+          name = null; // offline / LLM down — leave this line's groups unhighlighted
+        }
+        nameCache.set(namePart, name);
+        if (name) lastName = name;
+      }
+
+      if (name) {
+        for (const group of groups) {
+          const reuse = prevByText.get(group.token);
+          result.push(buildEntry(group, lineStart, name, result.length, reuse?.id));
+        }
+      }
     }
 
-    // A single clause that can't be resolved (offline, or the LLM endpoint is
-    // down / 500s) must not fail the whole scan — it just stays unhighlighted.
-    let parsed;
-    try {
-      parsed = await parseQuickEntryLine(api, candidate.text);
-    } catch {
-      continue;
-    }
-    if (parsed.status !== 'resolved' && parsed.status !== 'needs-confirm') continue;
-
-    result.push({
-      id: makeEntryId(),
-      exerciseId: parsed.exerciseId ?? null,
-      equipment: parsed.equipment ?? null,
-      weightKg: parsed.weightKg ?? null,
-      reps: parsed.reps ?? null,
-      sets: parsed.sets ?? null,
-      rawText: parsed.rawText,
-      parsedBy: parsed.parsedBy,
-      order: i,
-      synced: 0,
-      spanStart: candidate.start,
-      spanEnd: candidate.end,
-      status: parsed.status,
-      exerciseName: parsed.exerciseName,
-      muscles: parsed.muscles,
-      unresolvedToken: parsed.unresolvedToken,
-    });
+    lineStart += line.length + 1; // +1 for the '\n' consumed by split
   }
 
   return result;
