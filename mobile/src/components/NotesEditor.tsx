@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 import { View, Text, TextInput, Pressable, Keyboard, StyleSheet } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { Feather } from '@expo/vector-icons';
 import { colors, spacing, fonts, fontSize } from '@/lib/theme';
 
 export type HighlightSpan = {
@@ -95,8 +97,15 @@ export function NotesEditor({
         <Text style={styles.text}>{renderSegments(value, spans, onSpanPress)}</Text>
       </View>
       <View style={styles.toolbar} pointerEvents="box-none">
-        <Pressable onPress={() => Keyboard.dismiss()} style={styles.doneButton}>
-          <Text style={styles.doneLabel}>Done</Text>
+        <Pressable
+          onPress={() => Keyboard.dismiss()}
+          accessibilityLabel="Done"
+          accessibilityRole="button"
+          style={styles.doneButton}
+        >
+          <BlurView intensity={40} tint="light" style={styles.doneBlur}>
+            <Feather name="check" size={26} color={colors.graphite} />
+          </BlurView>
         </Pressable>
       </View>
     </View>
@@ -137,14 +146,21 @@ const styles = StyleSheet.create({
     right: spacing.s2,
   },
   doneButton: {
-    paddingHorizontal: spacing.s3,
-    paddingVertical: spacing.s1,
-    borderRadius: 6,
-    backgroundColor: colors.bone,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 31, 26, 0.15)',
+    shadowColor: colors.graphite,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  doneLabel: {
-    fontFamily: fonts.medium,
-    fontSize: fontSize.caption,
-    color: colors.graphite,
+  doneBlur: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

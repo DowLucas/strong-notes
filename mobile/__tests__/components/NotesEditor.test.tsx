@@ -48,13 +48,13 @@ describe('NotesEditor', () => {
     expect(highlighted.props.pointerEvents).toBe('auto');
   });
 
-  it('provides a Done button that dismisses the keyboard', async () => {
+  it('provides a circular Done checkmark button that dismisses the keyboard', async () => {
     const dismissSpy = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
     await render(
       <NotesEditor value={value} onChangeText={jest.fn()} spans={[]} onSpanPress={jest.fn()} placeholder="Start typing…" />,
     );
 
-    await fireEvent.press(screen.getByText('Done'));
+    await fireEvent.press(screen.getByLabelText('Done'));
     expect(dismissSpy).toHaveBeenCalled();
     dismissSpy.mockRestore();
   });
