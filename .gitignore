@@ -1,1 +1,17 @@
+# Local AI/agent tooling
 .superpowers/
+.claude/
+.gstack/
+.gstack.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Env / secrets (see backend/.gitignore for backend-specific rules)
+.env
+.env.local
+.env.*.local
