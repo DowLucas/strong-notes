@@ -49,6 +49,12 @@ describe('parseSetGroups — packed notation', () => {
     expect(line.slice(r.groups[0].start, r.groups[0].end)).toBe('40kgx8');
     expect(line.slice(r.groups[1].start, r.groups[1].end)).toBe('50kgx8x4');
   });
+
+  it('records the character offset where the trimmed namePart begins', () => {
+    const line = '  BB RDL 40kgx8x2';
+    const r = parseSetGroups(line);
+    expect(line.slice(r.namePartStart, r.namePartStart + r.namePart.length)).toBe('BB RDL');
+  });
 });
 
 describe('parseSetGroups — continuation lines', () => {

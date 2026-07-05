@@ -40,15 +40,20 @@ describe('LogScreen (notes-style)', () => {
 
     await waitFor(
       () => {
-        expect(screen.getByText('40kg 8x3')).toBeTruthy();
+        expect(screen.getByText('Warmup, then RDL 40kg 8x3')).toBeTruthy();
       },
       { timeout: 3000 },
     );
 
-    const session = await getLocalSession(todayDate());
-    expect(session?.notes).toBe('Warmup, then RDL 40kg 8x3');
-    expect(session?.entries).toHaveLength(1);
-    expect(session?.entries[0].exerciseId).toBe('ex-1');
+    // The highlight reflects the scan's in-memory result as soon as state
+    // updates; the SQLite persist it triggers is a separate awaited step
+    // that can still be in flight at that exact moment — wait for it too.
+    await waitFor(async () => {
+      const session = await getLocalSession(todayDate());
+      expect(session?.notes).toBe('Warmup, then RDL 40kg 8x3');
+      expect(session?.entries).toHaveLength(1);
+      expect(session?.entries[0].exerciseId).toBe('ex-1');
+    });
   });
 
   it('does not let a slow, stale scan overwrite a faster, newer one (out-of-order completion)', async () => {

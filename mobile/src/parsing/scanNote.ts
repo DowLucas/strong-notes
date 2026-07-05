@@ -26,6 +26,7 @@ type NameResolution = Pick<
 function buildEntry(
   group: SetGroup,
   lineStart: number,
+  spanStartInLine: number,
   name: NameResolution,
   order: number,
   reuseId?: string,
@@ -41,7 +42,7 @@ function buildEntry(
     parsedBy: name.parsedBy,
     order,
     synced: 0,
-    spanStart: lineStart + group.start,
+    spanStart: lineStart + spanStartInLine,
     spanEnd: lineStart + group.end,
     status: name.status === 'needs-confirm' ? 'needs-confirm' : 'resolved',
     exerciseName: name.exerciseName,
@@ -67,7 +68,7 @@ export async function scanNote(
   const lines = text.split('\n');
   for (let li = 0; li < lines.length; li += 1) {
     const line = lines[li];
-    const { namePart, groups } = parseSetGroups(line);
+    const { namePart, namePartStart, groups } = parseSetGroups(line);
 
     if (groups.length > 0) {
       let name: NameResolution | null;
@@ -89,9 +90,15 @@ export async function scanNote(
       }
 
       if (name) {
+        // A single-group named line has nothing to disambiguate, so its
+        // highlight includes the name — unlike a multi-group packed line,
+        // where the name is shared across sets and only each group's own
+        // numbers are highlighted (see NotesEditor for the rendering side).
+        const includeName = groups.length === 1 && namePart !== '';
         for (const group of groups) {
           const reuse = prevByText.get(group.token);
-          result.push(buildEntry(group, lineStart, name, result.length, reuse?.id));
+          const spanStartInLine = includeName ? namePartStart : group.start;
+          result.push(buildEntry(group, lineStart, spanStartInLine, name, result.length, reuse?.id));
         }
       }
     }

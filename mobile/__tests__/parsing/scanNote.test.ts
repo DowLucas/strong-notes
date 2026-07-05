@@ -26,9 +26,25 @@ describe('scanNote', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].status).toBe('resolved');
     expect(entries[0].exerciseId).toBe('ex-1');
-    // Under line-based group parsing, only the set-group token is highlighted
-    // (plan Task 3: 'Warmup, then RDL' is the namePart; the span is the group).
-    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe('40kg 8x3');
+    // A line with exactly one set-group has nothing to disambiguate, so the
+    // highlight includes the resolved name along with the group, not just
+    // the numbers on their own.
+    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe(text);
+  });
+
+  it('includes the exercise name in the highlight for a single-group line', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'Bench', type: 'exercise', exerciseId: 'ex-bench' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const text = 'Bench 8x3 50kg';
+    const entries = await scanNote(api, text, []);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].exerciseId).toBe('ex-bench');
+    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe('Bench 8x3 50kg');
   });
 
   it('drops clauses that resolve to unresolved (no highlight)', async () => {

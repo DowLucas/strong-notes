@@ -9,6 +9,8 @@ export type SetGroup = {
 
 export type ParsedWorkoutLine = {
   namePart: string;
+  /** Character offset within the line where the trimmed namePart begins. */
+  namePartStart: number;
   groups: SetGroup[];
 };
 
@@ -40,8 +42,14 @@ function tokenize(line: string): Token[] {
   return tokens;
 }
 
-function nameBefore(line: string, firstGroupStart: number): string {
-  return line.slice(0, firstGroupStart).replace(LEADING_BULLET, '').trim();
+function nameBefore(line: string, firstGroupStart: number): { text: string; start: number } {
+  // Stripping the leading bullet only removes characters from the front, so
+  // `raw`'s content still ends exactly at firstGroupStart in the original
+  // line — its own start there is firstGroupStart - raw.length. From that,
+  // trimStart()'s remaining length tells us how much further in the trimmed
+  // text actually begins.
+  const raw = line.slice(0, firstGroupStart).replace(LEADING_BULLET, '');
+  return { text: raw.trim(), start: firstGroupStart - raw.trimStart().length };
 }
 
 function parsePackedToken(t: Token): SetGroup | null {
@@ -64,8 +72,9 @@ function parsePacked(line: string, tokens: Token[]): ParsedWorkoutLine {
     const g = parsePackedToken(t);
     if (g) groups.push(g);
   }
-  if (groups.length === 0) return { namePart: '', groups: [] };
-  return { namePart: nameBefore(line, groups[0].start), groups };
+  if (groups.length === 0) return { namePart: '', namePartStart: 0, groups: [] };
+  const name = nameBefore(line, groups[0].start);
+  return { namePart: name.text, namePartStart: name.start, groups };
 }
 
 function parseClean(line: string, tokens: Token[]): ParsedWorkoutLine {
@@ -86,7 +95,7 @@ function parseClean(line: string, tokens: Token[]): ParsedWorkoutLine {
     }
   }
 
-  if (!repsSets && !weightToken) return { namePart: '', groups: [] };
+  if (!repsSets && !weightToken) return { namePart: '', namePartStart: 0, groups: [] };
 
   const first = [repsSets, weightToken]
     .filter((t): t is Token => t != null)
@@ -105,11 +114,12 @@ function parseClean(line: string, tokens: Token[]): ParsedWorkoutLine {
     start: first.start,
     end: last.end,
   };
-  return { namePart: nameBefore(line, first.start), groups: [group] };
+  const name = nameBefore(line, first.start);
+  return { namePart: name.text, namePartStart: name.start, groups: [group] };
 }
 
 export function parseSetGroups(line: string): ParsedWorkoutLine {
   const tokens = tokenize(line);
-  if (tokens.length === 0) return { namePart: '', groups: [] };
+  if (tokens.length === 0) return { namePart: '', namePartStart: 0, groups: [] };
   return PACKED_LINE.test(line) ? parsePacked(line, tokens) : parseClean(line, tokens);
 }
