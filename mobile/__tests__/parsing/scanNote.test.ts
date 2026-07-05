@@ -1,0 +1,66 @@
+// __tests__/parsing/scanNote.test.ts
+import { scanNote, type ScannedEntry } from '@/src/parsing/scanNote';
+import { resetDbForTests } from '@/src/db/client';
+import { cacheAbbreviations } from '@/src/db/abbreviationsRepo';
+import type { ApiClient } from '@/lib/api';
+
+function fakeApi(overrides: Partial<ApiClient> = {}): ApiClient {
+  return { resolveLine: jest.fn(), ...overrides } as unknown as ApiClient;
+}
+
+beforeEach(() => {
+  resetDbForTests();
+});
+
+describe('scanNote', () => {
+  it('produces a resolved entry with span offsets for a recognized clause', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const text = 'Warmup, then RDL 40kg 8x3';
+    const entries = await scanNote(api, text, []);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].status).toBe('resolved');
+    expect(entries[0].exerciseId).toBe('ex-1');
+    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe('then RDL 40kg 8x3');
+  });
+
+  it('drops clauses that resolve to unresolved (no highlight)', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({ resolvedTokens: [], unresolvedTokens: ['ZZZ'] }),
+    });
+    const entries = await scanNote(api, 'ZZZ 40kg 8x3', []);
+    expect(entries).toEqual([]);
+  });
+
+  it('reuses a prior resolution for an unchanged clause without calling the network again', async () => {
+    await cacheAbbreviations([{ id: '1', token: 'RDL', exerciseId: 'ex-1', source: 'BUILT_IN', createdAt: '' }]);
+    const resolveLine = jest.fn();
+    const api = fakeApi({ resolveLine });
+
+    const first = await scanNote(api, 'RDL 40kg 8x3', []); // resolves locally, no network
+    const second = await scanNote(api, 'RDL 40kg 8x3', first);
+
+    expect(resolveLine).not.toHaveBeenCalled();
+    expect(second[0].id).toBe(first[0].id); // stable id across re-scan
+  });
+
+  it('surfaces needs-confirm metadata for an LLM guess', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [],
+        unresolvedTokens: ['CRABWALK'],
+        llmGuess: { exerciseName: 'Crab Walk', muscles: ['GLUTES', 'CORE'], reps: 8, sets: 2 },
+      }),
+    });
+    const entries = await scanNote(api, 'CRABWALK 8x2', []);
+    expect(entries[0].status).toBe('needs-confirm');
+    expect(entries[0].exerciseName).toBe('Crab Walk');
+    expect(entries[0].unresolvedToken).toBe('CRABWALK');
+    expect(entries[0].muscles).toEqual(['GLUTES', 'CORE']);
+  });
+});
