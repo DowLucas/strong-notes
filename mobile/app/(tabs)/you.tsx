@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -14,13 +14,17 @@ import { LanguagePicker } from '@/components/LanguagePicker';
 import { showAlert } from '@/lib/app-alert';
 import { isPopupJustClosed } from '@/lib/popup-guard';
 import { useAuth } from '@/lib/auth';
-import { ApiError, type AvatarMimeType } from '@/lib/api';
+import { ApiError, type AvatarMimeType, type Abbreviation } from '@/lib/api';
 import {
   setLanguage,
   SUPPORTED_LANGUAGES,
   type SupportedLanguage,
 } from '@/lib/i18n';
 import { colors, spacing, typography } from '@/lib/theme';
+import { getCachedAbbreviations } from '@/src/db/abbreviationsRepo';
+import { syncNow } from '@/src/sync/syncEngine';
+
+const PENDING_ABBREVIATION_SOURCE = 'LLM_SUGGESTED_PENDING_CONFIRM';
 
 function initialsFor(name: string, email: string): string {
   const source = name.trim() || email.trim();
@@ -37,6 +41,21 @@ export default function You() {
   const [avatarSheet, setAvatarSheet] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [abbreviations, setAbbreviations] = useState<Abbreviation[]>([]);
+
+  async function refreshAbbreviations() {
+    await syncNow(api);
+    setAbbreviations(await getCachedAbbreviations());
+  }
+
+  useEffect(() => {
+    void refreshAbbreviations();
+  }, []);
+
+  async function handleConfirmAbbreviation(id: string) {
+    await api.confirmAbbreviation(id);
+    await refreshAbbreviations();
+  }
 
   const user = session?.user;
   const token = session?.token ?? null;
@@ -168,6 +187,26 @@ export default function You() {
             <NavRow label={t('you.about')} onPress={() => router.push('/settings/about')} />
           </View>
 
+          {abbreviations.length > 0 ? (
+            <>
+              <Text variant="monoLabel" color={colors.lead} style={styles.eyebrow}>
+                {t('you.abbreviationsEyebrow')}
+              </Text>
+              <View style={styles.list}>
+                {abbreviations.map((a) => (
+                  <View key={a.id} style={styles.row}>
+                    <Text style={styles.rowLabel}>{a.token}</Text>
+                    {a.source === PENDING_ABBREVIATION_SOURCE ? (
+                      <TouchableOpacity onPress={() => void handleConfirmAbbreviation(a.id)}>
+                        <Text style={styles.confirmLabel}>{t('you.abbreviations.confirm')}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            </>
+          ) : null}
+
           <Text variant="monoLabel" color={colors.lead} style={styles.eyebrow}>
             {t('you.accountEyebrow')}
           </Text>
@@ -261,6 +300,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.ruleSoft,
   },
   rowLabel: { ...typography.body },
+  confirmLabel: { ...typography.bodyEmphasis, color: colors.moss },
   rowRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.s2 },
   rowValue: { ...typography.monoBodyS, color: colors.lead },
 });
