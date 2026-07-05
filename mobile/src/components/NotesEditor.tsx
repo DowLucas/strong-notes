@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { View, Text, TextInput, Pressable, Keyboard, StyleSheet } from 'react-native';
 import { colors, spacing, fonts, fontSize } from '@/lib/theme';
 
 export type HighlightSpan = {
@@ -23,13 +23,18 @@ function renderSegments(
     // corrupts the rendered text.
     if (span.start < cursor || span.end > text.length || span.start >= span.end) return;
     if (span.start > cursor) {
-      nodes.push(<Text key={`plain-${i}`}>{text.slice(cursor, span.start)}</Text>);
+      nodes.push(
+        <Text key={`plain-${i}`} pointerEvents="none">
+          {text.slice(cursor, span.start)}
+        </Text>,
+      );
     }
     nodes.push(
       <Text
         key={span.entryId}
         style={span.status === 'resolved' ? styles.resolved : styles.needsConfirm}
         onPress={() => onSpanPress(span.entryId)}
+        pointerEvents="auto"
       >
         {text.slice(span.start, span.end)}
       </Text>,
@@ -37,7 +42,13 @@ function renderSegments(
     cursor = span.end;
   });
 
-  if (cursor < text.length) nodes.push(<Text key="tail">{text.slice(cursor)}</Text>);
+  if (cursor < text.length) {
+    nodes.push(
+      <Text key="tail" pointerEvents="none">
+        {text.slice(cursor)}
+      </Text>,
+    );
+  }
   return nodes;
 }
 
@@ -57,10 +68,16 @@ export function NotesEditor({
   // Layer order matters. The TextInput is rendered first (underneath) and is
   // the real editing surface, with transparent text so the styled overlay
   // shows through and its caret (selectionColor) peeks through the gaps. The
-  // styled overlay is rendered second (on top) inside a `box-none` View:
-  // plain-text segments have no touch handler, so taps fall THROUGH to the
-  // TextInput (positioning the cursor); span segments have onPress, so they
-  // capture the tap and open the popover.
+  // styled overlay is rendered second (on top) inside a `box-none` View, so
+  // the overlay itself is never a touch target — only its children can be.
+  //
+  // Each PLAIN (non-highlighted) segment is explicitly pointerEvents="none":
+  // it's a touch-inert leaf (no children, no handler), so this only ever
+  // narrows what can capture a tap, never widens it. NOTE: this must not be
+  // set on the wrapping <Text> itself or on the highlighted spans — unlike a
+  // View, pointerEvents="none" on a Text disables its entire subtree, so
+  // applying it above the highlighted spans would silently break tapping
+  // them (caught by a regression test after an earlier, incorrect attempt).
   return (
     <View style={styles.container}>
       <TextInput
@@ -76,6 +93,11 @@ export function NotesEditor({
       />
       <View style={styles.overlay} pointerEvents="box-none">
         <Text style={styles.text}>{renderSegments(value, spans, onSpanPress)}</Text>
+      </View>
+      <View style={styles.toolbar} pointerEvents="box-none">
+        <Pressable onPress={() => Keyboard.dismiss()} style={styles.doneButton}>
+          <Text style={styles.doneLabel}>Done</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -105,5 +127,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bone,
     textDecorationLine: 'underline',
     textDecorationColor: colors.citrine,
+  },
+  // A small always-present affordance to blur the TextInput/dismiss the
+  // keyboard — a full-bleed multiline editor otherwise gives no way to close
+  // the keyboard (Enter correctly inserts a newline instead of submitting).
+  toolbar: {
+    position: 'absolute',
+    top: spacing.s2,
+    right: spacing.s2,
+  },
+  doneButton: {
+    paddingHorizontal: spacing.s3,
+    paddingVertical: spacing.s1,
+    borderRadius: 6,
+    backgroundColor: colors.bone,
+  },
+  doneLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSize.caption,
+    color: colors.graphite,
   },
 });
