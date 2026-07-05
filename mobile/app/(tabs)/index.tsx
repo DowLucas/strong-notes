@@ -62,7 +62,9 @@ export default function LogScreen() {
         date: todayDate(),
         notes: noteText,
         synced: 0,
-        entries: list.map(toLocalSetEntry),
+        // A multi-group line's name-only highlight isn't a real logged set
+        // (no weight/reps/sets) and must never be synced as one.
+        entries: list.filter((e) => !e.isNameOnly).map(toLocalSetEntry),
       }),
     );
     persistQueueRef.current = task.catch(() => undefined);

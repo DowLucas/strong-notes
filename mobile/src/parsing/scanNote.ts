@@ -14,6 +14,10 @@ export type ScannedEntry = LocalSetEntry & {
   // line (and its ⁃ continuation lines) — lets the UI show one popover per
   // exercise instead of one per highlighted number.
   groupId: string;
+  // True for the exercise-name-only highlight added on a multi-group line
+  // (see below) — it doesn't represent a real logged set (weightKg/reps/sets
+  // are null) and must be excluded when persisting/syncing entries.
+  isNameOnly?: boolean;
 };
 
 let idCounter = 0;
@@ -35,6 +39,25 @@ type NameResolution = Pick<
   | 'clarifyingQuestion'
 >;
 
+// Fields shared by every entry resolved from the same name, regardless of
+// whether it represents a real set-group or the name-only highlight.
+function sharedFields(name: NameResolution, groupId: string) {
+  return {
+    exerciseId: name.exerciseId ?? null,
+    equipment: name.equipment ?? null,
+    parsedBy: name.parsedBy,
+    synced: 0 as const,
+    status: (name.status === 'needs-confirm' ? 'needs-confirm' : 'resolved') as
+      | 'resolved'
+      | 'needs-confirm',
+    exerciseName: name.exerciseName,
+    muscles: name.muscles,
+    unresolvedToken: name.unresolvedToken,
+    clarifyingQuestion: name.clarifyingQuestion,
+    groupId,
+  };
+}
+
 function buildEntry(
   group: SetGroup,
   lineStart: number,
@@ -46,23 +69,40 @@ function buildEntry(
 ): ScannedEntry {
   return {
     id: reuseId ?? makeId(),
-    exerciseId: name.exerciseId ?? null,
-    equipment: name.equipment ?? null,
+    ...sharedFields(name, groupId),
     weightKg: group.weightKg,
     reps: group.reps,
     sets: group.sets,
     rawText: group.token,
-    parsedBy: name.parsedBy,
     order,
-    synced: 0,
     spanStart: lineStart + spanStartInLine,
     spanEnd: lineStart + group.end,
-    status: name.status === 'needs-confirm' ? 'needs-confirm' : 'resolved',
-    exerciseName: name.exerciseName,
-    muscles: name.muscles,
-    unresolvedToken: name.unresolvedToken,
-    clarifyingQuestion: name.clarifyingQuestion,
-    groupId,
+  };
+}
+
+// The exercise name itself, highlighted as its own span on a multi-group
+// line — where the name is shared across several set-groups, so it isn't
+// merged into any single group's span the way a single-group line's is.
+function buildNameOnlyEntry(
+  namePart: string,
+  namePartStart: number,
+  lineStart: number,
+  name: NameResolution,
+  groupId: string,
+  order: number,
+  reuseId?: string,
+): ScannedEntry {
+  return {
+    id: reuseId ?? makeId(),
+    ...sharedFields(name, groupId),
+    weightKg: null,
+    reps: null,
+    sets: null,
+    rawText: namePart,
+    order,
+    spanStart: lineStart + namePartStart,
+    spanEnd: lineStart + namePartStart + namePart.length,
+    isNameOnly: true,
   };
 }
 
@@ -119,10 +159,17 @@ export async function scanNote(
         }
 
         // A single-group named line has nothing to disambiguate, so its
-        // highlight includes the name — unlike a multi-group packed line,
-        // where the name is shared across sets and only each group's own
-        // numbers are highlighted (see NotesEditor for the rendering side).
+        // highlight merges the name into that one group's span. A
+        // multi-group line's name is shared across several sets, so it gets
+        // its own separate highlight instead (this doesn't represent a real
+        // logged set — see isNameOnly).
         const includeName = groups.length === 1 && namePart !== '';
+        if (groups.length > 1 && namePart !== '') {
+          const nameReuse = prevByText.get(namePart);
+          result.push(
+            buildNameOnlyEntry(namePart, namePartStart, lineStart, name, groupId, result.length, nameReuse?.id),
+          );
+        }
         for (const group of groups) {
           const reuse = prevByText.get(group.token);
           const spanStartInLine = includeName ? namePartStart : group.start;

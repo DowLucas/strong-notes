@@ -101,7 +101,7 @@ describe('scanNote', () => {
     expect(entries[0].muscles).toEqual(['GLUTES', 'CORE']);
   });
 
-  it('emits one entry per packed set-group, sharing the resolved exercise', async () => {
+  it('emits a name span plus one entry per packed set-group, sharing the resolved exercise', async () => {
     const api = fakeApi({
       resolveLine: jest.fn().mockResolvedValue({
         resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
@@ -110,9 +110,11 @@ describe('scanNote', () => {
     });
     const entries = await scanNote(api, 'BB RDL 40kgx8 50kgx8x4 40kgx8x3', []);
 
-    expect(entries).toHaveLength(3);
+    // 1 name-only span ("BB RDL") + 3 set-groups.
+    expect(entries).toHaveLength(4);
     expect(entries.every((e) => e.exerciseId === 'ex-1')).toBe(true);
-    expect(entries.map((e) => [e.weightKg, e.reps, e.sets])).toEqual([
+    expect(entries[0].isNameOnly).toBe(true);
+    expect(entries.slice(1).map((e) => [e.weightKg, e.reps, e.sets])).toEqual([
       [40, 8, 1],
       [50, 8, 4],
       [40, 8, 3],
@@ -121,7 +123,7 @@ describe('scanNote', () => {
     expect((api.resolveLine as jest.Mock).mock.calls).toHaveLength(1);
   });
 
-  it('spans each group token individually within the line', async () => {
+  it('spans each group token individually within the line, after the name span', async () => {
     const api = fakeApi({
       resolveLine: jest.fn().mockResolvedValue({
         resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
@@ -130,8 +132,35 @@ describe('scanNote', () => {
     });
     const text = 'BB RDL 40kgx8 50kgx8x4';
     const entries = await scanNote(api, text, []);
-    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe('40kgx8');
-    expect(text.slice(entries[1].spanStart!, entries[1].spanEnd!)).toBe('50kgx8x4');
+    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe('BB RDL');
+    expect(text.slice(entries[1].spanStart!, entries[1].spanEnd!)).toBe('40kgx8');
+    expect(text.slice(entries[2].spanStart!, entries[2].spanEnd!)).toBe('50kgx8x4');
+  });
+
+  it('does not add a separate name span for a single-group line (already merged into its one span)', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'Bench', type: 'exercise', exerciseId: 'ex-bench' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const entries = await scanNote(api, 'Bench 8x3 50kg', []);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].isNameOnly).toBeFalsy();
+  });
+
+  it('the name span shares groupId with its set-groups and is excluded from persistence', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'RDL', type: 'exercise', exerciseId: 'ex-1' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const entries = await scanNote(api, 'BB RDL 40kgx8 50kgx8x4', []);
+    expect(entries[0].groupId).toBe(entries[1].groupId);
+    expect(entries[0].weightKg).toBeNull();
+    expect(entries[0].reps).toBeNull();
+    expect(entries[0].sets).toBeNull();
   });
 
   it('inherits the exercise from the previous line into a ⁃ continuation line', async () => {
@@ -167,10 +196,10 @@ describe('scanNote', () => {
     });
     const entries = await scanNote(api, 'BB RDL 40kgx8 50kgx8x4 40kgx8x3', []);
 
-    expect(entries).toHaveLength(3);
+    // 1 name-only span + 3 set-groups, all sharing one groupId.
+    expect(entries).toHaveLength(4);
     expect(entries[0].groupId).toBeTruthy();
-    expect(entries[1].groupId).toBe(entries[0].groupId);
-    expect(entries[2].groupId).toBe(entries[0].groupId);
+    expect(entries.every((e) => e.groupId === entries[0].groupId)).toBe(true);
   });
 
   it('shares the same groupId between a line and its ⁃ continuation', async () => {
