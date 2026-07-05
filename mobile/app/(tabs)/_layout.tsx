@@ -27,8 +27,22 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: t('app.name'),
-          tabBarIcon: ({ color, size }) => <Feather name="home" size={size} color={color} />,
+          title: t('log.title'),
+          tabBarIcon: ({ color, size }) => <Feather name="edit-3" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="stats"
+        options={{
+          title: t('stats.title'),
+          tabBarIcon: ({ color, size }) => <Feather name="bar-chart-2" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="history"
+        options={{
+          title: t('history.title'),
+          tabBarIcon: ({ color, size }) => <Feather name="clock" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
