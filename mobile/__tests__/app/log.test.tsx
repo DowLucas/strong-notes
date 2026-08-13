@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-
 import LogScreen from '../../app/(tabs)/index';
 import { useAuth } from '@/lib/auth';
 import { resetDbForTests } from '@/src/db/client';
-import { getLocalSession } from '@/src/db/sessionsRepo';
+import { getLocalSession, upsertLocalSession } from '@/src/db/sessionsRepo';
 import { scanNote } from '@/src/parsing/scanNote';
 
 jest.mock('@/lib/auth');
@@ -54,6 +54,44 @@ describe('LogScreen (notes-style)', () => {
       expect(session?.entries).toHaveLength(1);
       expect(session?.entries[0].exerciseId).toBe('ex-1');
     });
+  });
+
+  it('tints an exercise blue when it has prior-session history', async () => {
+    // A prior session (before today) for the same exercise the scan resolves to.
+    await upsertLocalSession({
+      date: '2020-01-02',
+      notes: 'RDL 40kgx8',
+      synced: 1,
+      entries: [
+        {
+          id: 'prior-1',
+          exerciseId: 'ex-1',
+          equipment: null,
+          weightKg: 40,
+          reps: 8,
+          sets: 1,
+          rawText: '40kgx8',
+          parsedBy: 'DICTIONARY',
+          order: 0,
+          synced: 1,
+          spanStart: null,
+          spanEnd: null,
+        },
+      ],
+    });
+
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    await fireEvent.changeText(input, 'RDL 40kg 8x3');
+
+    // The resolved span must carry exerciseId all the way to the editor for the
+    // prior-history tint to apply — this guards that wiring end-to-end.
+    await waitFor(
+      () => {
+        expect(screen.getByText('RDL 40kg 8x3')).toHaveStyle({ backgroundColor: '#DCE8FA' });
+      },
+      { timeout: 3000 },
+    );
   });
 
   it('does not let a slow, stale scan overwrite a faster, newer one (out-of-order completion)', async () => {

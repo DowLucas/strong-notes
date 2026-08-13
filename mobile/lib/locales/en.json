@@ -19,6 +19,12 @@
     "unauthorized": "Your session has expired. Please sign in again."
   },
   "log": {
+    "accessory": {
+      "insertBar": "Insert bar load",
+      "insertKg": "Insert kilograms",
+      "insertTimes": "Insert times sign",
+      "newLine": "New continuation line"
+    },
     "title": "Log"
   },
   "home": {

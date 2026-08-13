@@ -4,9 +4,16 @@ import { View, Text, Modal, Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/lib/auth';
 import { scanNote, type ScannedEntry } from '@/src/parsing/scanNote';
-import { getLocalSession, upsertLocalSession, type LocalSetEntry } from '@/src/db/sessionsRepo';
+import {
+  getLocalSession,
+  upsertLocalSession,
+  getRecentSessionsForExercise,
+  type LocalSetEntry,
+} from '@/src/db/sessionsRepo';
+import { getCachedAbbreviations } from '@/src/db/abbreviationsRepo';
 import { NotesEditor, type HighlightSpan } from '@/src/components/NotesEditor';
 import { EntryPopover } from '@/src/components/EntryPopover';
+import type { ExerciseHistory } from '@/lib/priorHistory';
 import { colors, spacing } from '@/lib/theme';
 
 const ERROR_MESSAGE = "Couldn't load data. Pull down or reopen the app to retry.";
@@ -41,6 +48,8 @@ export default function LogScreen() {
   const [entries, setEntries] = useState<ScannedEntry[]>([]);
   const [popoverGroupId, setPopoverGroupId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dictionaryTokens, setDictionaryTokens] = useState<string[]>([]);
+  const [priorSessions, setPriorSessions] = useState<Record<string, ExerciseHistory[]>>({});
 
   const entriesRef = useRef<ScannedEntry[]>([]);
   const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -109,6 +118,40 @@ export default function LogScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load the cached shorthand dictionary once for accessory-bar autocomplete.
+  // A failure here is non-fatal — the editor just has no completions.
+  useEffect(() => {
+    getCachedAbbreviations()
+      .then((abbrs) => setDictionaryTokens(abbrs.map((a) => a.token)))
+      .catch(() => setDictionaryTokens([]));
+  }, []);
+
+  // Look up prior-session stats for every resolved exercise in the note, so the
+  // editor can hint "you did this before" on the caret's line. Local and fast.
+  useEffect(() => {
+    const ids = Array.from(
+      new Set(entries.filter((e) => e.exerciseId).map((e) => e.exerciseId as string)),
+    );
+    if (ids.length === 0) {
+      setPriorSessions({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const today = todayDate();
+      const pairs = await Promise.all(
+        ids.map(async (id) => [id, await getRecentSessionsForExercise(id, today, 3)] as const),
+      );
+      if (cancelled) return;
+      const map: Record<string, ExerciseHistory[]> = {};
+      for (const [id, sessions] of pairs) if (sessions.length > 0) map[id] = sessions;
+      setPriorSessions(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entries]);
+
   function handleChangeText(next: string) {
     setText(next);
 
@@ -168,19 +211,27 @@ export default function LogScreen() {
       end: e.spanEnd as number,
       status: e.status,
       entryId: e.id,
+      exerciseName: e.exerciseName,
+      exerciseId: e.exerciseId,
     }));
 
   const popoverEntries = entries.filter((e) => e.groupId === popoverGroupId);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <Text style={styles.error} accessibilityRole="alert" accessibilityLiveRegion="polite">
+          {error}
+        </Text>
+      ) : null}
       <NotesEditor
         value={text}
         onChangeText={handleChangeText}
         spans={spans}
         onSpanPress={handleSpanPress}
         placeholder="Start typing your workout…"
+        dictionaryTokens={dictionaryTokens}
+        priorSessionsByExercise={priorSessions}
       />
       <Modal
         visible={popoverEntries.length > 0}

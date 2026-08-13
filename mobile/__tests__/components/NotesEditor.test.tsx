@@ -8,7 +8,7 @@ describe('NotesEditor', () => {
     { start: 8, end: 25, status: 'resolved', entryId: 'e1' }, // "then RDL 40kg 8x3"
   ];
 
-  it('renders the highlighted span as its own tappable node', async () => {
+  it('moves the caret onto the exercise line when a resolved span is tapped', async () => {
     const onSpanPress = jest.fn();
     await render(
       <NotesEditor value={value} onChangeText={jest.fn()} spans={spans} onSpanPress={onSpanPress} placeholder="Start typing…" />,
@@ -16,6 +16,20 @@ describe('NotesEditor', () => {
 
     const span = screen.getByText('then RDL 40kg 8x3');
     await fireEvent.press(span);
+    // Caret jumps to the span end; the confirm popover is not opened for a
+    // resolved exercise.
+    expect(screen.getByPlaceholderText('Start typing…').props.selection).toEqual({ start: 25, end: 25 });
+    expect(onSpanPress).not.toHaveBeenCalled();
+  });
+
+  it('opens the confirm popover when a needs-confirm span is tapped', async () => {
+    const onSpanPress = jest.fn();
+    const needsConfirm: HighlightSpan[] = [{ start: 8, end: 25, status: 'needs-confirm', entryId: 'e1' }];
+    await render(
+      <NotesEditor value={value} onChangeText={jest.fn()} spans={needsConfirm} onSpanPress={onSpanPress} placeholder="Start typing…" />,
+    );
+
+    await fireEvent.press(screen.getByText('then RDL 40kg 8x3'));
     expect(onSpanPress).toHaveBeenCalledWith('e1');
   });
 
@@ -37,7 +51,7 @@ describe('NotesEditor', () => {
     const hitTarget = screen.getByTestId('span-hit-target-e1');
     expect(hitTarget.props.style).toMatchObject({ left: 40 - 8, top: 20 - 8, width: 100 + 16, height: 20 + 16 });
     await fireEvent.press(hitTarget);
-    expect(onSpanPress).toHaveBeenCalledWith('e1');
+    expect(screen.getByPlaceholderText('Start typing…').props.selection).toEqual({ start: 25, end: 25 });
   });
 
   it('exposes the editable text and reports changes', async () => {
