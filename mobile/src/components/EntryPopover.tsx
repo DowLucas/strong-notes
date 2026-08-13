@@ -44,7 +44,13 @@ export function EntryPopover({
         <View style={styles.clarify}>
           <Text style={styles.question}>{clarifyingQuestion.question}</Text>
           {clarifyingQuestion.alternatives.map((alt) => (
-            <Pressable key={alt} onPress={() => onConfirm(entries, alt)} style={styles.altBtn}>
+            <Pressable
+              key={alt}
+              onPress={() => onConfirm(entries, alt)}
+              style={styles.altBtn}
+              accessibilityRole="button"
+              accessibilityLabel={alt}
+            >
               <Text style={styles.altLabel}>{alt}</Text>
             </Pressable>
           ))}
@@ -54,21 +60,27 @@ export function EntryPopover({
             onChangeText={setCustomValue}
             placeholder="Or type your own…"
             placeholderTextColor={colors.lead}
+            accessibilityLabel="Custom exercise name"
           />
           <Pressable
             onPress={() => onConfirm(entries, customValue.trim() || undefined)}
             style={styles.confirmBtn}
+            accessibilityRole="button"
           >
             <Text style={styles.confirmLabel}>Save</Text>
           </Pressable>
         </View>
       ) : needsConfirm ? (
-        <Pressable onPress={() => onConfirm(entries, undefined)} style={styles.confirmBtn}>
+        <Pressable
+          onPress={() => onConfirm(entries, undefined)}
+          style={styles.confirmBtn}
+          accessibilityRole="button"
+        >
           <Text style={styles.confirmLabel}>Confirm exercise</Text>
         </Pressable>
       ) : null}
 
-      <Pressable onPress={onClose} style={styles.closeBtn}>
+      <Pressable onPress={onClose} style={styles.closeBtn} accessibilityRole="button">
         <Text style={styles.closeLabel}>Close</Text>
       </Pressable>
     </View>

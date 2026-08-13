@@ -21,6 +21,7 @@ export function Field({ label, value, onChangeText, amount = false, ...rest }: P
         placeholderTextColor={colors.lead}
         allowFontScaling
         maxFontSizeMultiplier={2}
+        accessibilityLabel={label}
         {...rest}
       />
     </View>

@@ -22,6 +22,8 @@ import {
 } from '@/lib/i18n';
 import { colors, spacing, typography } from '@/lib/theme';
 import { getCachedAbbreviations } from '@/src/db/abbreviationsRepo';
+import { seedPriorSessions } from '@/src/db/devSeed';
+import { getLastSessionForExercise } from '@/src/db/sessionsRepo';
 import { syncNow } from '@/src/sync/syncEngine';
 
 const PENDING_ABBREVIATION_SOURCE = 'LLM_SUGGESTED_PENDING_CONFIRM';
@@ -132,6 +134,42 @@ export default function You() {
       : []),
   ];
 
+  // Dev-only: seed local prior sessions so the Log editor's prior-stats hint is
+  // testable on a fresh install. Refreshes the abbreviation list read-only (a
+  // full sync would replace the seeded dictionary with the server's).
+  async function handleSeedPriorSessions() {
+    try {
+      const res = await seedPriorSessions();
+      const abbrs = await getCachedAbbreviations();
+      setAbbreviations(abbrs);
+
+      // Verify the whole chain on-device so we can see where it breaks: pick a
+      // token with an exercise id and confirm history exists under that id.
+      const first = abbrs.find((a) => a.exerciseId);
+      const today = new Date().toISOString().slice(0, 10);
+      let diag: string;
+      if (!first?.exerciseId) {
+        diag = '⚠️ Dictionary has no exercises — sync first, then re-seed.';
+      } else {
+        const h = await getLastSessionForExercise(first.exerciseId, today);
+        diag = h
+          ? `✅ "${first.token}" → history OK (${h.entries.length} sets, ${h.date}).`
+          : `❌ "${first.token}" → NO history under ${first.exerciseId.slice(0, 8)}…`;
+      }
+
+      const example = res.tokens[0] ?? 'rdl';
+      await showAlert({
+        title: 'Seeded prior sessions',
+        message:
+          `Tokens: ${res.tokens.join(', ')}\n${diag}\n\n` +
+          `Now HARD-RELOAD the app, then on the Log tab type:\n  ${example} 40kgx8\n\n` +
+          `It should turn blue; caret on the line shows last session's stats.`,
+      });
+    } catch (e) {
+      await showAlert({ title: 'Seed failed', message: String(e) });
+    }
+  }
+
   async function confirmSignOut() {
     if (isPopupJustClosed()) return;
     const r = await showAlert({
@@ -151,13 +189,19 @@ export default function You() {
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + spacing.s7 }}>
         <ContentContainer style={styles.content}>
           <View style={styles.profile}>
-            <TouchableOpacity onPress={openAvatarSheet} activeOpacity={0.8} disabled={uploading}>
+            <TouchableOpacity
+              onPress={openAvatarSheet}
+              activeOpacity={0.8}
+              disabled={uploading}
+              accessibilityRole="button"
+              accessibilityLabel={t('you.avatar.changePhoto')}
+            >
               <Avatar
                 initials={initialsFor(user?.name ?? '', user?.email ?? '')}
                 source={avatarSource}
                 style={styles.avatar}
               />
-              <View style={styles.avatarBadge}>
+              <View style={styles.avatarBadge} importantForAccessibility="no">
                 <Feather name="camera" size={12} color={colors.paper} />
               </View>
             </TouchableOpacity>
@@ -213,6 +257,21 @@ export default function You() {
           <View style={styles.list}>
             <NavRow label={t('you.signOut')} destructive showChevron={false} onPress={confirmSignOut} />
           </View>
+
+          {__DEV__ ? (
+            <>
+              <Text variant="monoLabel" color={colors.lead} style={styles.eyebrow}>
+                Devtools
+              </Text>
+              <View style={styles.list}>
+                <NavRow
+                  label="Seed prior sessions"
+                  showChevron={false}
+                  onPress={() => void handleSeedPriorSessions()}
+                />
+              </View>
+            </>
+          ) : null}
         </ContentContainer>
       </ScrollView>
 

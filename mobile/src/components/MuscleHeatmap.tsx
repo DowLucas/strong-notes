@@ -3,9 +3,26 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import Svg, { Rect, Ellipse, Circle } from 'react-native-svg';
 import { progressColor } from '../science/muscleColor';
 import type { GoalProgress, MuscleGroup } from '@/lib/api';
+import { colors } from '@/lib/theme';
 
 const NEUTRAL = '#e5e7eb';
 const SKIN = '#e5c9a8';
+
+// Mirrors the thresholds in `progressColor` so the legend and the
+// screen-reader summary describe the same three tiers (plus "no goal" for a
+// muscle with no progress entry at all).
+const LEGEND = [
+  { swatch: '#dc2626', label: 'Met' },
+  { swatch: '#f59e42', label: 'On track' },
+  { swatch: '#fde2e2', label: 'Behind' },
+  { swatch: NEUTRAL, label: 'No goal' },
+] as const;
+
+// Unique, visually-ordered muscle lists per view — used to build the single
+// spoken summary for the whole diagram (individual per-shape SVG
+// accessibilityLabels below don't reach screen readers on-device).
+const FRONT_MUSCLES: MuscleGroup[] = ['CHEST', 'SHOULDERS', 'ARMS', 'CORE', 'QUADS', 'CALVES'];
+const BACK_MUSCLES: MuscleGroup[] = ['BACK', 'SHOULDERS', 'ARMS', 'GLUTES', 'HAMSTRINGS', 'CALVES'];
 
 function colorFor(muscle: MuscleGroup, progress: GoalProgress[]): string {
   const p = progress.find((x) => x.muscle === muscle);
@@ -17,6 +34,19 @@ function labelFor(muscle: MuscleGroup, progress: GoalProgress[]): string {
   const p = progress.find((x) => x.muscle === muscle);
   const name = muscle.charAt(0) + muscle.slice(1).toLowerCase();
   return p ? `${name}: ${p.actualSets} of ${p.targetMax} sets` : `${name}: no data`;
+}
+
+function statusPhraseFor(muscle: MuscleGroup, progress: GoalProgress[]): string {
+  const p = progress.find((x) => x.muscle === muscle);
+  const name = muscle.charAt(0) + muscle.slice(1).toLowerCase();
+  if (!p) return `${name}: no goal set`;
+  const ratio = p.targetMax > 0 ? p.actualSets / p.targetMax : 0;
+  const status = ratio >= 1 ? 'target met' : p.actualSets >= p.targetMin ? 'on track' : 'below target';
+  return `${name} ${p.actualSets} of ${p.targetMax} sets, ${status}`;
+}
+
+function summaryFor(muscles: MuscleGroup[], progress: GoalProgress[]): string {
+  return `${muscles.map((m) => statusPhraseFor(m, progress)).join('. ')}.`;
 }
 
 function FrontBody({ progress }: { progress: GoalProgress[] }) {
@@ -56,19 +86,46 @@ function BackBody({ progress }: { progress: GoalProgress[] }) {
   );
 }
 
+function Legend() {
+  return (
+    <View style={styles.legendRow}>
+      {LEGEND.map((item) => (
+        <View key={item.label} style={styles.legendItem}>
+          <View style={[styles.legendSwatch, { backgroundColor: item.swatch }]} />
+          <Text style={styles.legendLabel}>{item.label}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function MuscleHeatmap({ progress }: { progress: GoalProgress[] }) {
   const [view, setView] = useState<'front' | 'back'>('front');
+  const muscles = view === 'front' ? FRONT_MUSCLES : BACK_MUSCLES;
   return (
     <View style={styles.container}>
       <View style={styles.toggleRow}>
-        <Pressable testID="toggle-front" onPress={() => setView('front')}>
+        <Pressable
+          testID="toggle-front"
+          onPress={() => setView('front')}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: view === 'front' }}
+        >
           <Text style={view === 'front' ? styles.toggleActive : styles.toggle}>Front</Text>
         </Pressable>
-        <Pressable testID="toggle-back" onPress={() => setView('back')}>
+        <Pressable
+          testID="toggle-back"
+          onPress={() => setView('back')}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: view === 'back' }}
+        >
           <Text style={view === 'back' ? styles.toggleActive : styles.toggle}>Back</Text>
         </Pressable>
       </View>
-      {view === 'front' ? <FrontBody progress={progress} /> : <BackBody progress={progress} />}
+      <View accessible accessibilityRole="image" accessibilityLabel={summaryFor(muscles, progress)}>
+        {view === 'front' ? <FrontBody progress={progress} /> : <BackBody progress={progress} />}
+      </View>
+      <Legend />
     </View>
   );
 }
@@ -76,6 +133,10 @@ export function MuscleHeatmap({ progress }: { progress: GoalProgress[] }) {
 const styles = StyleSheet.create({
   container: { alignItems: 'center' },
   toggleRow: { flexDirection: 'row', gap: 16, marginBottom: 8 },
-  toggle: { color: '#999' },
+  toggle: { color: colors.lead },
   toggleActive: { color: '#111', fontWeight: '700' },
+  legendRow: { flexDirection: 'row', gap: 12, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  legendSwatch: { width: 10, height: 10, borderRadius: 2 },
+  legendLabel: { color: colors.lead, fontSize: 12 },
 });

@@ -94,7 +94,11 @@ export default function StatsScreen() {
       <TopBar title={t('stats.title')} />
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + spacing.s7 }}>
         <ContentContainer style={styles.content}>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? (
+            <Text style={styles.error} accessibilityRole="alert" accessibilityLiveRegion="polite">
+              {error}
+            </Text>
+          ) : null}
           {noActiveGoal ? (
             <EmptyState title={t('stats.noGoalTitle')} body={t('stats.noGoalBody')} icon="target" />
           ) : null}

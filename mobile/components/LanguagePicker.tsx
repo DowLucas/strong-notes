@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.body,
     color: colors.graphite,
   },
-  nameActive: { color: colors.vermillion },
+  nameActive: { color: colors.brick },
   code: {
     fontFamily: fontMono,
     fontSize: fontSize.caption,

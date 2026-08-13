@@ -103,13 +103,19 @@ export function ActionSheet({ visible, onClose, title, options }: Props) {
               }
             }}
             activeOpacity={0.7}
+            accessibilityRole="button"
           >
             <Text style={[styles.rowLabel, opt.destructive && styles.rowLabelDestructive]}>
               {opt.label}
             </Text>
           </TouchableOpacity>
         ))}
-        <TouchableOpacity style={[styles.row, styles.cancelRow]} onPress={closeWithGuard} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={[styles.row, styles.cancelRow]}
+          onPress={closeWithGuard}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+        >
           <Text style={[styles.rowLabel, styles.cancelLabel]}>{cancelLabel}</Text>
         </TouchableOpacity>
       </View>
@@ -178,7 +184,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   rowLabelDestructive: {
-    color: colors.vermillion,
+    color: colors.brick,
   },
   cancelRow: {
     marginTop: spacing.s2,

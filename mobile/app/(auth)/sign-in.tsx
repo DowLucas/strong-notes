@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { Text } from '@/components/Text';
@@ -60,10 +60,14 @@ export default function SignIn() {
   }
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
+    <KeyboardAvoidingView
+      style={[styles.root, { paddingTop: insets.top }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         <ContentContainer style={styles.content}>
           <Text variant="monoLabel" color={colors.lead} style={styles.eyebrow}>
@@ -119,7 +123,7 @@ export default function SignIn() {
           )}
         </ContentContainer>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

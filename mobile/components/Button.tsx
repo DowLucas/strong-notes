@@ -9,9 +9,21 @@ interface Props {
   children: React.ReactNode;
   style?: ViewStyle;
   disabled?: boolean;
+  busy?: boolean;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
 }
 
-export function Button({ kind = 'primary', onPress, children, style, disabled }: Props) {
+export function Button({
+  kind = 'primary',
+  onPress,
+  children,
+  style,
+  disabled,
+  busy,
+  accessibilityLabel,
+  accessibilityHint,
+}: Props) {
   const labelOnAccent = kind === 'primary' || kind === 'positive';
   return (
     <TouchableOpacity
@@ -19,6 +31,10 @@ export function Button({ kind = 'primary', onPress, children, style, disabled }:
       disabled={disabled}
       style={[styles.base, styles[kind], disabled && styles.disabled, style]}
       activeOpacity={0.8}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled, busy: !!busy }}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
     >
       <Text style={[styles.label, labelOnAccent ? styles.labelPrimary : styles.labelDefault]}>
         {children}
