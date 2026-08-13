@@ -1,4 +1,5 @@
 import { getDb } from './client';
+import type { ExerciseHistory } from '@/lib/priorHistory';
 
 export type LocalSetEntry = {
   id: string;
@@ -119,6 +120,75 @@ export async function listUnsyncedSessions(): Promise<LocalSession[]> {
   for (const row of rows) {
     const entries = await loadEntries(db, row.date);
     sessions.push({ date: row.date, notes: row.notes, synced: row.synced as 0 | 1, entries });
+  }
+  return sessions;
+}
+
+// The most recent session strictly before `beforeDate` that logged the given
+// exercise, with all its set-groups — powers the Log editor's prior-stats hint.
+// Returns null when the exercise has no prior history.
+export async function getLastSessionForExercise(
+  exerciseId: string,
+  beforeDate: string,
+): Promise<ExerciseHistory | null> {
+  const db = await getDb();
+  const dateRow = await db.getFirstAsync<{ session_date: string }>(
+    `SELECT session_date FROM set_entries
+     WHERE exercise_id = ? AND session_date < ?
+     ORDER BY session_date DESC LIMIT 1`,
+    [exerciseId, beforeDate],
+  );
+  if (!dateRow) return null;
+
+  const rows = await db.getAllAsync<{
+    weight_kg: number | null;
+    reps: number | null;
+    sets: number | null;
+  }>(
+    `SELECT weight_kg, reps, sets FROM set_entries
+     WHERE exercise_id = ? AND session_date = ?
+     ORDER BY entry_order ASC`,
+    [exerciseId, dateRow.session_date],
+  );
+
+  return {
+    date: dateRow.session_date,
+    entries: rows.map((r) => ({ weightKg: r.weight_kg, reps: r.reps, sets: r.sets })),
+  };
+}
+
+// The most recent `limit` sessions (each with all its set-groups) that logged
+// the exercise, strictly before `beforeDate`, newest first. Powers Progression:
+// the newest session is shown, the trend across them drives the recommendation.
+export async function getRecentSessionsForExercise(
+  exerciseId: string,
+  beforeDate: string,
+  limit: number,
+): Promise<ExerciseHistory[]> {
+  const db = await getDb();
+  const dateRows = await db.getAllAsync<{ session_date: string }>(
+    `SELECT DISTINCT session_date FROM set_entries
+     WHERE exercise_id = ? AND session_date < ?
+     ORDER BY session_date DESC LIMIT ?`,
+    [exerciseId, beforeDate, limit],
+  );
+
+  const sessions: ExerciseHistory[] = [];
+  for (const dr of dateRows) {
+    const rows = await db.getAllAsync<{
+      weight_kg: number | null;
+      reps: number | null;
+      sets: number | null;
+    }>(
+      `SELECT weight_kg, reps, sets FROM set_entries
+       WHERE exercise_id = ? AND session_date = ?
+       ORDER BY entry_order ASC`,
+      [exerciseId, dr.session_date],
+    );
+    sessions.push({
+      date: dr.session_date,
+      entries: rows.map((r) => ({ weightKg: r.weight_kg, reps: r.reps, sets: r.sets })),
+    });
   }
   return sessions;
 }
