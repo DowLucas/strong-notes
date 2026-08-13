@@ -57,6 +57,36 @@ describe('parseSetGroups — packed notation', () => {
   });
 });
 
+describe('parseSetGroups — flexible weight position', () => {
+  it('reads the unit-tagged weight when it comes AFTER the reps', () => {
+    const r = parseSetGroups('RDL 8x2kg');
+    expect(r.namePart).toBe('RDL');
+    expect(r.groups).toHaveLength(1);
+    expect(r.groups[0]).toMatchObject({ weightKg: 2, reps: 8, sets: 1, token: '8x2kg' });
+  });
+
+  it('reads weight-second with a full weight (`8x40kg`)', () => {
+    const r = parseSetGroups('RDL 8x40kg');
+    expect(r.groups[0]).toMatchObject({ weightKg: 40, reps: 8, sets: 1 });
+  });
+
+  it('reads a weight in the middle of the chain (`8x40kgx3`)', () => {
+    const r = parseSetGroups('RDL 8x40kgx3');
+    expect(r.groups[0]).toMatchObject({ weightKg: 40, reps: 8, sets: 3 });
+  });
+
+  it('still treats a unit-less `8x3` as reps×sets (clean), not weight', () => {
+    const r = parseSetGroups('Squats 8x3');
+    expect(r.groups).toHaveLength(1);
+    expect(r.groups[0]).toMatchObject({ weightKg: null, reps: 8, sets: 3 });
+  });
+
+  it('rejects a token with two weights as ambiguous', () => {
+    // `40kgx50kg` has two unit-tagged parts → not a valid group.
+    expect(parseSetGroups('RDL 40kgx50kg').groups).toEqual([]);
+  });
+});
+
 describe('parseSetGroups — continuation lines', () => {
   it('reports an empty namePart for a bulleted continuation line', () => {
     const r = parseSetGroups('    ⁃    50kgx8 60kgx6 70kgx4');
@@ -81,6 +111,32 @@ describe('parseSetGroups — clean/prose notation (unchanged behavior)', () => {
     const r = parseSetGroups('did Bench Press 60kg 8x3');
     expect(r.namePart).toBe('did Bench Press');
     expect(r.groups[0]).toMatchObject({ weightKg: 60, reps: 8, sets: 3 });
+  });
+
+  it('emits one group per bare reps×sets token (bodyweight multi-group)', () => {
+    const r = parseSetGroups('Squats 3x10 2x10');
+    expect(r.namePart).toBe('Squats');
+    expect(r.groups.map((g) => [g.weightKg, g.reps, g.sets])).toEqual([
+      [null, 3, 10],
+      [null, 2, 10],
+    ]);
+  });
+
+  it('records a distinct token/span for each clean multi-group', () => {
+    const line = 'Squats 3x10 2x10';
+    const r = parseSetGroups(line);
+    expect(r.groups.map((g) => g.token)).toEqual(['3x10', '2x10']);
+    expect(line.slice(r.groups[0].start, r.groups[0].end)).toBe('3x10');
+    expect(line.slice(r.groups[1].start, r.groups[1].end)).toBe('2x10');
+  });
+
+  it('attaches the nearest preceding weight to each clean multi-group', () => {
+    const r = parseSetGroups('Bench 60kg 8x3 65kg 6x2');
+    expect(r.namePart).toBe('Bench');
+    expect(r.groups.map((g) => [g.weightKg, g.reps, g.sets])).toEqual([
+      [60, 8, 3],
+      [65, 6, 2],
+    ]);
   });
 
   it('returns no groups for a line with no set tokens', () => {

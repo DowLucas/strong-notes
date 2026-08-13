@@ -276,4 +276,20 @@ describe('scanNote', () => {
       alternatives: ['Assisted', 'As many reps as possible'],
     });
   });
+
+  it('gives every entry a unique id even with repeated set-group tokens across a re-scan', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'rdl', type: 'exercise', exerciseId: 'ex-1' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const text = 'rdl 40kgx8 40kgx8'; // two identical tokens on one line
+    const first = await scanNote(api, text, []);
+    // Re-scan with the prior result as `previous` — the reuse path is where
+    // duplicate tokens previously collided on one id (breaking the DB insert).
+    const second = await scanNote(api, text, first);
+    const ids = second.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });

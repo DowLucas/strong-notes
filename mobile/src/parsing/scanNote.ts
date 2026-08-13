@@ -113,6 +113,15 @@ export async function scanNote(
 ): Promise<ScannedEntry[]> {
   const prevByText = new Map(previous.map((e) => [e.rawText, e]));
   const result: ScannedEntry[] = [];
+  // Entry ids are DB primary keys, so each previous id may be reused at most
+  // once per scan — otherwise two identical set-group tokens on a line (e.g.
+  // `40kgx8 40kgx8`) would both reuse it and collide. Fall back to a fresh id.
+  const usedIds = new Set<string>();
+  const claimReuseId = (entry: ScannedEntry | undefined): string | undefined => {
+    if (!entry || usedIds.has(entry.id)) return undefined;
+    usedIds.add(entry.id);
+    return entry.id;
+  };
 
   // Resolve each distinct name prefix once per scan.
   const nameCache = new Map<string, NameResolution | null>();
@@ -165,15 +174,15 @@ export async function scanNote(
         // logged set — see isNameOnly).
         const includeName = groups.length === 1 && namePart !== '';
         if (groups.length > 1 && namePart !== '') {
-          const nameReuse = prevByText.get(namePart);
+          const nameReuse = claimReuseId(prevByText.get(namePart));
           result.push(
-            buildNameOnlyEntry(namePart, namePartStart, lineStart, name, groupId, result.length, nameReuse?.id),
+            buildNameOnlyEntry(namePart, namePartStart, lineStart, name, groupId, result.length, nameReuse),
           );
         }
         for (const group of groups) {
-          const reuse = prevByText.get(group.token);
+          const reuseId = claimReuseId(prevByText.get(group.token));
           const spanStartInLine = includeName ? namePartStart : group.start;
-          result.push(buildEntry(group, lineStart, spanStartInLine, name, groupId, result.length, reuse?.id));
+          result.push(buildEntry(group, lineStart, spanStartInLine, name, groupId, result.length, reuseId));
         }
       }
     }
