@@ -71,10 +71,12 @@ type Config struct {
 	JobsEnabled bool
 
 	// LLM (shorthand/goal resolution fallback)
-	LLMProvider     string // "ollama" | "anthropic"
+	LLMProvider     string // "ollama" | "anthropic" | "gemini"
 	OllamaURL       string
 	OllamaModel     string
 	AnthropicAPIKey string
+	GeminiAPIKey    string
+	GeminiModel     string
 }
 
 func Load() (*Config, error) {
@@ -116,6 +118,8 @@ func Load() (*Config, error) {
 		OllamaURL:       getEnv("OLLAMA_URL", "http://localhost:11434"),
 		OllamaModel:     getEnv("OLLAMA_MODEL", "gemma2:2b"),
 		AnthropicAPIKey: getEnv("ANTHROPIC_API_KEY", ""),
+		GeminiAPIKey:    getEnv("GEMINI_API_KEY", ""),
+		GeminiModel:     getEnv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
 	}
 
 	if err := cfg.validate(); err != nil {

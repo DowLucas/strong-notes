@@ -48,6 +48,11 @@ func NewProvider(cfg *config.Config) (Provider, error) {
 			return nil, fmt.Errorf("llm: ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic")
 		}
 		return NewAnthropicProvider(cfg.AnthropicAPIKey), nil
+	case "gemini":
+		if cfg.GeminiAPIKey == "" {
+			return nil, fmt.Errorf("llm: GEMINI_API_KEY is required when LLM_PROVIDER=gemini")
+		}
+		return &GeminiProvider{APIKey: cfg.GeminiAPIKey, Model: cfg.GeminiModel}, nil
 	default:
 		return nil, fmt.Errorf("llm: unknown LLM_PROVIDER %q", cfg.LLMProvider)
 	}
