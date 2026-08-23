@@ -1,5 +1,5 @@
 // src/parsing/scanNote.ts
-import type { ApiClient, ClarifyingQuestion, MuscleGroup } from '@/lib/api';
+import { ApiError, type ApiClient, type ClarifyingQuestion, type MuscleGroup } from '@/lib/api';
 import type { LocalSetEntry } from '../db/sessionsRepo';
 import type { SetGroup } from './parseSetGroups';
 import { parseLineSegments } from './parseLine';
@@ -123,11 +123,21 @@ function compareIdentity(a: ExerciseIdentity, b: ExerciseIdentity): 'same' | 'di
   return 'unknown';
 }
 
+export type ScanNoteOptions = {
+  // Called (at most once per scan) when a line couldn't be resolved because
+  // the server was unreachable — as opposed to a server-side rejection
+  // (ApiError), which is not a connectivity problem. Lets the UI say
+  // "offline" honestly instead of pretending the line was read.
+  onNetworkError?: (err: unknown) => void;
+};
+
 export async function scanNote(
   api: ApiClient,
   text: string,
   previous: ScannedEntry[],
+  options: ScanNoteOptions = {},
 ): Promise<ScannedEntry[]> {
+  let networkErrorReported = false;
   const prevByText = new Map<string, ScannedEntry[]>();
   for (const entry of previous) {
     const list = prevByText.get(entry.rawText);
@@ -189,8 +199,12 @@ export async function scanNote(
             const parsed = await parseQuickEntryLine(api, namePart);
             name =
               parsed.status === 'resolved' || parsed.status === 'needs-confirm' ? parsed : null;
-          } catch {
+          } catch (err) {
             name = null; // offline / LLM down — leave this line's groups unhighlighted
+            if (!(err instanceof ApiError) && !networkErrorReported) {
+              networkErrorReported = true;
+              options.onNetworkError?.(err);
+            }
           }
           nameCache.set(namePart, name);
           if (name) lastName = name;

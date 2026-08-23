@@ -24,6 +24,9 @@ export const colors = {
   mossPale: '#DCEAC4',
   brick: '#8A2A2A',
   citrine: '#E0A040',
+  // Translucent citrine for "needs your OK" highlights — visible on paper
+  // (unlike bone), yet light enough that graphite text stays legible on it.
+  citrinePale: 'rgba(224,160,64,0.28)',
 
   ruleSoft: 'rgba(45, 31, 26, 0.07)',
   fgOnAccent: '#F4F1E6',

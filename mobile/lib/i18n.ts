@@ -93,16 +93,17 @@ export function formatDate(d: Date | string): string {
 
 /**
  * Localized long date ("Sunday, 23 August 2026") for a YYYY-MM-DD string.
- * Date-only strings parse as UTC midnight, so format in UTC to avoid the
- * day shifting west of Greenwich.
+ * The string is a local calendar date (it's how the Log keys "today"), so
+ * build the Date from its parts rather than parsing it — `new Date('YYYY-MM-DD')`
+ * would read it as UTC midnight and shift the day west of Greenwich.
  */
 export function formatLongDate(isoDate: string): string {
-  return new Date(isoDate).toLocaleDateString(currentLocale(), {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(currentLocale(), {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-    timeZone: 'UTC',
   });
 }
 
