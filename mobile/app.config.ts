@@ -14,7 +14,9 @@ const config: ExpoConfig = {
   scheme: 'strongnotes',
   orientation: 'portrait',
   icon: './assets/icon.png',
-  userInterfaceStyle: 'automatic',
+  // Dark mode is not implemented; lock to light so system dark mode doesn't
+  // render unstyled surfaces.
+  userInterfaceStyle: 'light',
   ios: {
     // The UI uses a centered max-width content column (see lib/responsive.ts +
     // components/ContentContainer.tsx) so it reads as a single column on iPad

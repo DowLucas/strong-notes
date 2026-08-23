@@ -14,6 +14,7 @@ import {
 import { getCachedAbbreviations } from '@/src/db/abbreviationsRepo';
 import { NotesEditor, type HighlightSpan } from '@/src/components/NotesEditor';
 import { Toast, useToast } from '@/components/Toast';
+import { TopBar } from '@/components/TopBar';
 import { ConfirmBar, type PendingGroup } from '@/src/components/ConfirmBar';
 import { upsertCachedAbbreviations } from '@/src/db/abbreviationsRepo';
 import type { Abbreviation } from '@/lib/api';
@@ -327,6 +328,7 @@ export default function LogScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <TopBar title={t('log.title')} />
       <Text style={styles.dateLabel} accessibilityRole="header">
         {t('log.entryDate', { date: formatLongDate(todayDate()) })}
       </Text>

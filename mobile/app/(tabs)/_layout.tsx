@@ -7,7 +7,7 @@ import { colors, fontMono } from '@/lib/theme';
 import { useAutoSync } from '@/src/sync/useAutoSync';
 
 export default function TabsLayout() {
-  const { session, loading } = useAuth();
+  const { session, loading, signedOutReason } = useAuth();
   const { t } = useTranslation();
   // Push unsynced sessions / refresh the abbreviation cache on launch and on
   // every return to the foreground, whichever tab the user lands on. No-op
@@ -17,7 +17,10 @@ export default function TabsLayout() {
   // Still hydrating the persisted session — hold on a paper-coloured screen
   // to avoid a flash of the sign-in screen before redirecting.
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.paper }} />;
-  if (!session) return <Redirect href="/(auth)/sign-in" />;
+  // An expired session lands on sign-in with an explanation (see sign-in.tsx).
+  if (!session) {
+    return <Redirect href={signedOutReason === 'expired' ? '/(auth)/sign-in?reason=expired' : '/(auth)/sign-in'} />;
+  }
 
   return (
     <Tabs
@@ -37,17 +40,17 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="stats"
-        options={{
-          title: t('stats.title'),
-          tabBarIcon: ({ color, size }) => <Feather name="bar-chart-2" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
         name="history"
         options={{
           title: t('history.title'),
           tabBarIcon: ({ color, size }) => <Feather name="clock" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="stats"
+        options={{
+          title: t('stats.title'),
+          tabBarIcon: ({ color, size }) => <Feather name="trending-up" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
