@@ -8,6 +8,11 @@ import { showAlert } from '@/lib/app-alert';
 
 jest.mock('@/lib/auth');
 jest.mock('@/lib/app-alert', () => ({ showAlert: jest.fn().mockResolvedValue('ok') }));
+jest.mock('@/lib/storage', () => ({
+  loadLastEmail: jest.fn().mockResolvedValue(null),
+  saveLastEmail: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('expo-router', () => ({ useLocalSearchParams: jest.fn(() => ({})) }));
 jest.mock('expo-crypto', () => ({
   randomUUID: jest.fn(() => 'raw-nonce'),
   digestStringAsync: jest.fn().mockResolvedValue('hashed-nonce'),
@@ -42,6 +47,7 @@ beforeEach(() => {
     api: { requestMagicLink: jest.fn() },
     signInWithToken: jest.fn(),
     signInWithApple,
+    signedOutReason: null,
   });
 });
 
@@ -100,7 +106,7 @@ describe('Sign in with Apple', () => {
 
     await render(<SignIn />);
     // Let the availability effect settle; it must not even be consulted.
-    await waitFor(() => expect(screen.getByText('Send magic link')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Email me a sign-in code')).toBeTruthy());
     expect(AppleAuthentication.isAvailableAsync).not.toHaveBeenCalled();
     expect(screen.queryByTestId('apple-sign-in')).toBeNull();
   });

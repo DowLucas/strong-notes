@@ -23,10 +23,19 @@ import {
   type Session,
 } from './storage';
 
+export type SignedOutReason = 'expired';
+
 interface AuthContextValue {
   /** True until the persisted session has been loaded on mount. */
   loading: boolean;
   session: Session | null;
+  /**
+   * Why the last session ended without the user asking for it (`'expired'`
+   * when the server rejected the token). Null after a normal sign-out or
+   * once the user signs in again. The sign-in screen reads it to explain
+   * why the user is back there.
+   */
+  signedOutReason: SignedOutReason | null;
   /** The shared API client, bound to the configured base URL. */
   api: ApiClient;
   /** Persist a token: fetch the profile, store `{ token, user }`, sign in. */
@@ -50,6 +59,7 @@ export const BASE_URL = defaultBaseUrl();
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
+  const [signedOutReason, setSignedOutReason] = useState<SignedOutReason | null>(null);
 
   // The client reads the token lazily through this ref so it never goes stale
   // and never needs to be recreated.
@@ -57,6 +67,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const applySession = useCallback((next: Session | null) => {
     tokenRef.current = next?.token ?? null;
     setSession(next);
+    // A new session supersedes whatever ended the previous one.
+    if (next) setSignedOutReason(null);
   }, []);
 
   // An expired/revoked session: drop it locally so the router sends the user
@@ -65,6 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const handleUnauthorized = useCallback(() => {
     if (!tokenRef.current) return; // already cleared by a concurrent 401
     applySession(null);
+    setSignedOutReason('expired');
     void clearSession();
   }, [applySession]);
 
@@ -126,6 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     await clearSession();
     applySession(null);
+    setSignedOutReason(null);
   }, [api, applySession]);
 
   const refreshMe = useCallback(async () => {
@@ -137,8 +151,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [api, applySession]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ loading, session, api, signInWithToken, signInWithApple, signOut, refreshMe }),
-    [loading, session, api, signInWithToken, signInWithApple, signOut, refreshMe],
+    () => ({ loading, session, signedOutReason, api, signInWithToken, signInWithApple, signOut, refreshMe }),
+    [loading, session, signedOutReason, api, signInWithToken, signInWithApple, signOut, refreshMe],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
