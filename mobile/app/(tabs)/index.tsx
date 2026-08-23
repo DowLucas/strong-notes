@@ -82,6 +82,7 @@ export default function LogScreen() {
   // failed to reach the server (cleared by the next successful scan).
   const [scanning, setScanning] = useState(false);
   const [offline, setOffline] = useState(false);
+  const offlineRef = useRef(false);
   const [dictionaryTokens, setDictionaryTokens] = useState<string[]>([]);
   const [priorSessions, setPriorSessions] = useState<Record<string, ExerciseHistory[]>>({});
 
@@ -142,11 +143,11 @@ export default function LogScreen() {
       if (unreachable) {
         // Only announce going offline once per episode — the header status
         // keeps saying so until a scan gets through.
-        setOffline((was) => {
-          if (!was) setError({ kind: 'network' });
-          return true;
-        });
+        if (!offlineRef.current) setError({ kind: 'network' });
+        offlineRef.current = true;
+        setOffline(true);
       } else {
+        offlineRef.current = false;
         setOffline(false);
         setError((e) => (e?.kind === 'network' ? null : e));
       }
