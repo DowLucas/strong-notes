@@ -2,6 +2,7 @@ package llm
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -113,15 +114,15 @@ func TestNormalizeLineGuess_EquipmentFoldedIntoName(t *testing.T) {
 func TestNormalizeLineGuess_PlaceholderNamesTreatedAsEmpty(t *testing.T) {
 	for _, junk := range []string{"null", "NULL", "none", "unknown", "n/a"} {
 		g := NormalizeLineGuess([]string{"db", "OHSP"}, LineGuess{ExerciseName: junk})
-		if g.ExerciseName != "Dumbbell OHSP" {
-			t.Errorf("%q -> %q, want Dumbbell OHSP", junk, g.ExerciseName)
+		if g.ExerciseName != "Dumbbell Overhead Shoulder Press" {
+			t.Errorf("%q -> %q, want Dumbbell Overhead Shoulder Press", junk, g.ExerciseName)
 		}
 	}
 }
 
 func TestNormalizeLineGuess_FallbackExpandsShorthandAndSetsEquipment(t *testing.T) {
 	g := NormalizeLineGuess([]string{"db", "OHSP"}, LineGuess{ExerciseName: ""})
-	if g.ExerciseName != "Dumbbell OHSP" {
+	if g.ExerciseName != "Dumbbell Overhead Shoulder Press" {
 		t.Fatalf("ExerciseName = %q", g.ExerciseName)
 	}
 	if g.Equipment == nil || *g.Equipment != "Dumbbell" || g.EquipmentToken == nil || *g.EquipmentToken != "db" {
@@ -164,5 +165,62 @@ func TestNormalizeLineGuess_EquipmentTitleCaseIsRuneAware(t *testing.T) {
 	g := NormalizeLineGuess(nil, LineGuess{ExerciseName: "X", Equipment: strp("östlig maskin")})
 	if g.Equipment == nil || *g.Equipment != "Östlig Maskin" {
 		t.Fatalf("Equipment = %v, want Östlig Maskin", g.Equipment)
+	}
+}
+
+func TestNormalizeLineGuess_FallbackExpandsExerciseVocabulary(t *testing.T) {
+	cases := map[string][]string{
+		"Romanian Deadlift":       {"romanian", "dl"},
+		"Romanian Deadlift ":      {"rdl", ""},
+		"Barbell Bench Press":     {"bb", "bp"},
+		"Dumbbell Overhead Press": {"db", "ohp"},
+		"Hanging Leg Raise":       {"hlr"},
+		"Zercher Thing":           {"zercher", "thing"}, // unknown words stay as written (capitalised)
+	}
+	for want, toks := range cases {
+		var in []string
+		for _, x := range toks {
+			if x != "" {
+				in = append(in, x)
+			}
+		}
+		g := NormalizeLineGuess(in, LineGuess{ExerciseName: ""})
+		if g.ExerciseName != strings.TrimSpace(want) {
+			t.Errorf("%v -> %q, want %q", in, g.ExerciseName, strings.TrimSpace(want))
+		}
+	}
+}
+
+func TestLinePrompt_IncludesExerciseVocabulary(t *testing.T) {
+	p := linePrompt("x", nil)
+	for _, want := range []string{"dl=Deadlift", "rdl=Romanian Deadlift", "ohp=Overhead Press"} {
+		if !contains(p, want) {
+			t.Errorf("prompt missing %q", want)
+		}
+	}
+}
+
+func TestNormalizeLineGuess_ClarifyingKindDefaultsAndValidates(t *testing.T) {
+	g := NormalizeLineGuess(nil, LineGuess{ExerciseName: "Dip", ClarifyingQuestion: &ClarifyingQuestion{Token: "As", Question: "?", Alternatives: []string{"Assisted", "AMRAP"}}})
+	if g.ClarifyingQuestion == nil || g.ClarifyingQuestion.Kind != "modifier" {
+		t.Fatalf("kind should default to modifier, got %+v", g.ClarifyingQuestion)
+	}
+	g = NormalizeLineGuess(nil, LineGuess{ExerciseName: "Power Clean", ClarifyingQuestion: &ClarifyingQuestion{Kind: "EXERCISE", Token: "pc", Question: "Did you mean…?", Alternatives: []string{"Power Clean", "Preacher Curl"}}})
+	if g.ClarifyingQuestion.Kind != "exercise" {
+		t.Fatalf("kind should be lower-cased exercise, got %q", g.ClarifyingQuestion.Kind)
+	}
+	// A question without usable alternatives is dropped rather than shown half-empty.
+	g = NormalizeLineGuess(nil, LineGuess{ExerciseName: "X", ClarifyingQuestion: &ClarifyingQuestion{Kind: "exercise", Token: "x", Question: "?", Alternatives: []string{" "}}})
+	if g.ClarifyingQuestion != nil {
+		t.Fatalf("expected empty-alternatives question to be dropped, got %+v", g.ClarifyingQuestion)
+	}
+}
+
+func TestLinePrompt_DescribesExerciseClarification(t *testing.T) {
+	p := linePrompt("pc 60kg 3x3", []string{"pc"})
+	for _, want := range []string{`"kind": "exercise"`, `"kind": "modifier"`, "Did you mean"} {
+		if !contains(p, want) {
+			t.Errorf("prompt missing %q", want)
+		}
 	}
 }

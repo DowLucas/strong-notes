@@ -98,12 +98,35 @@ func NormalizeLineGuess(unresolved []string, g LineGuess) LineGuess {
 	if g.Equipment == nil {
 		g = equipmentFromTokens(unresolved, g)
 	}
+	g.ClarifyingQuestion = canonicalQuestion(g.ClarifyingQuestion)
 	if g.ExerciseName == "" {
 		g = fallbackFromTokens(unresolved, g)
 	} else if g.Equipment != nil {
 		g.ExerciseName = nameWithEquipment(g.ExerciseName, *g.Equipment, g.EquipmentToken)
 	}
 	return g
+}
+
+// canonicalQuestion lower-cases/defaults the question kind, trims the
+// alternatives and drops a question that has nothing usable to offer.
+func canonicalQuestion(q *ClarifyingQuestion) *ClarifyingQuestion {
+	if q == nil {
+		return nil
+	}
+	kind := strings.ToLower(strings.TrimSpace(q.Kind))
+	if kind != "exercise" {
+		kind = "modifier"
+	}
+	alts := make([]string, 0, len(q.Alternatives))
+	for _, a := range q.Alternatives {
+		if a = strings.TrimSpace(a); a != "" {
+			alts = append(alts, a)
+		}
+	}
+	if strings.TrimSpace(q.Token) == "" || len(alts) == 0 {
+		return nil
+	}
+	return &ClarifyingQuestion{Kind: kind, Token: strings.TrimSpace(q.Token), Question: strings.TrimSpace(q.Question), Alternatives: alts}
 }
 
 // equipmentFromTokens sets Equipment/EquipmentToken from the first unresolved
@@ -158,6 +181,10 @@ func fallbackFromTokens(unresolved []string, g LineGuess) LineGuess {
 			continue
 		}
 		if g.EquipmentToken != nil && strings.EqualFold(tok, *g.EquipmentToken) {
+			continue
+		}
+		if full := shorthand.ExerciseFor(tok); full != "" {
+			rest = append(rest, full)
 			continue
 		}
 		rest = append(rest, capitalize(tok))

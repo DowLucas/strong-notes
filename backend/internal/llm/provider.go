@@ -26,6 +26,10 @@ type LineGuess struct {
 // client can then ask the user to pick one of two suggested meanings or type
 // their own, and save the answer to their personal dictionary.
 type ClarifyingQuestion struct {
+	// Kind is "modifier" (an ambiguous qualifier word; the answer is prefixed
+	// to the exercise name) or "exercise" (the exercise itself is uncertain;
+	// the answer REPLACES the exercise name). Defaults to "modifier".
+	Kind         string   `json:"kind"`
 	Token        string   `json:"token"`
 	Question     string   `json:"question"`
 	Alternatives []string `json:"alternatives"`
