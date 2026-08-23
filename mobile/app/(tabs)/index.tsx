@@ -311,7 +311,8 @@ export default function LogScreen() {
     }
   }
   const pendingSignature = pendingGroups.map((g) => g.groupId).sort().join('|');
-  const showConfirmBar = pendingGroups.length > 0 && dismissedPending !== pendingSignature && popoverGroupId == null;
+  // Hidden bars come back as a small pill; a different pending set re-expands.
+  const confirmBarCollapsed = dismissedPending === pendingSignature;
 
   async function handleConfirmAll() {
     const targets = pendingGroups.filter((g) => !g.needsAnswer);
@@ -368,14 +369,15 @@ export default function LogScreen() {
         onConfirm={handleConfirm}
         onClose={() => setPopoverGroupId(null)}
       />
-      {showConfirmBar ? (
-        <ConfirmBar
-          pending={pendingGroups}
-          progress={bulkProgress}
-          onConfirmAll={() => void handleConfirmAll()}
-          onDismiss={() => setDismissedPending(pendingSignature)}
-        />
-      ) : null}
+      <ConfirmBar
+        pending={pendingGroups}
+        progress={bulkProgress}
+        collapsed={confirmBarCollapsed}
+        onConfirmAll={() => void handleConfirmAll()}
+        onOpenGroup={setPopoverGroupId}
+        onDismiss={() => setDismissedPending(pendingSignature)}
+        onExpand={() => setDismissedPending(null)}
+      />
       <Toast message={toast.message} />
     </View>
   );

@@ -50,15 +50,18 @@
       "newLine": "New continuation line"
     },
     "confirmBar": {
-      "confirmAll": "Confirm all ({{count}})",
+      "confirmAll": "Confirm all {{count}}",
       "confirmed_one": "{{count}} exercise confirmed",
       "confirmed_other": "{{count}} exercises confirmed",
       "confirming": "Confirming {{done}}/{{total}}…",
       "count_one": "{{count}} exercise to confirm",
       "count_other": "{{count}} exercises to confirm",
-      "dismiss": "Dismiss",
-      "needsAnswer_one": "{{count}} needs an answer — tap it",
-      "needsAnswer_other": "{{count}} need an answer — tap them"
+      "dismiss": "Hide",
+      "needsAnswer_one": "{{count}} needs an answer — tap its name",
+      "needsAnswer_other": "{{count}} need an answer — tap their names",
+      "openGroupHint": "Opens this exercise to confirm or fix it",
+      "pill": "{{count}} to confirm",
+      "pillHint": "Shows the exercises waiting for your OK"
     },
     "entryDate": "Log for {{date}}",
     "popover": {

@@ -222,7 +222,7 @@ describe('LogScreen (notes-style)', () => {
     expect(screen.getAllByText(/Barbell Squat/).length).toBeGreaterThan(0);
 
     // Only the two groups without a clarifying question are bulk-confirmable.
-    await fireEvent.press(screen.getByRole('button', { name: 'Confirm all (2)' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Confirm all 2' }));
 
     await waitFor(() => {
       expect(createExercise).toHaveBeenCalledWith({ name: 'Barbell Squat', muscles: ['QUADS'] });
@@ -231,11 +231,11 @@ describe('LogScreen (notes-style)', () => {
     // The clarifying-question group is not auto-confirmed…
     expect(createExercise).not.toHaveBeenCalledWith(expect.objectContaining({ name: expect.stringContaining('Dip') }));
     // …and the bar says so.
-    await waitFor(() => expect(screen.getByText('1 needs an answer — tap it')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('1 needs an answer — tap its name')).toBeTruthy());
     await waitFor(() => expect(screen.getByText('2 exercises confirmed')).toBeTruthy());
   });
 
-  it('dismisses the confirm bar for the current pending set', async () => {
+  it('opens a pending group\'s sheet from its chip in the confirm bar', async () => {
     await render(<LogScreen />);
     const input = screen.getByPlaceholderText('Start typing your workout…');
     mockResolveLine.mockReset().mockResolvedValue({
@@ -245,8 +245,24 @@ describe('LogScreen (notes-style)', () => {
     });
     await fireEvent.changeText(input, 'squats 60kg 8x3');
     await waitFor(() => expect(screen.getByText('1 exercise to confirm')).toBeTruthy(), { timeout: 3000 });
-    await fireEvent.press(screen.getByRole('button', { name: 'Dismiss' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Squat' }));
+    expect(await screen.findByText('We read this as Squat')).toBeTruthy();
+  });
+
+  it('hides the confirm bar to a pill for the current pending set, and re-expands from the pill', async () => {
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    mockResolveLine.mockReset().mockResolvedValue({
+      resolvedTokens: [],
+      unresolvedTokens: ['squats'],
+      llmGuess: { exerciseName: 'Squat', muscles: ['QUADS'] },
+    });
+    await fireEvent.changeText(input, 'squats 60kg 8x3');
+    await waitFor(() => expect(screen.getByText('1 exercise to confirm')).toBeTruthy(), { timeout: 3000 });
+    await fireEvent.press(screen.getByRole('button', { name: 'Hide' }));
     expect(screen.queryByText('1 exercise to confirm')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: '1 to confirm' }));
+    expect(screen.getByText('1 exercise to confirm')).toBeTruthy();
   });
 
   it('confirms a multi-word name: binds every name token to the exercise and caches them locally', async () => {
