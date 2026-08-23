@@ -49,6 +49,17 @@
       "insertTimes": "Insert times sign",
       "newLine": "New continuation line"
     },
+    "confirmBar": {
+      "confirmAll": "Confirm all ({{count}})",
+      "confirmed_one": "{{count}} exercise confirmed",
+      "confirmed_other": "{{count}} exercises confirmed",
+      "confirming": "Confirming {{done}}/{{total}}…",
+      "count_one": "{{count}} exercise to confirm",
+      "count_other": "{{count}} exercises to confirm",
+      "dismiss": "Dismiss",
+      "needsAnswer_one": "{{count}} needs an answer — tap it",
+      "needsAnswer_other": "{{count}} need an answer — tap them"
+    },
     "entryDate": "Log for {{date}}",
     "saved": "Saved",
     "title": "Log",

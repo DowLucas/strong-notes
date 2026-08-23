@@ -26,9 +26,9 @@ const WEIGHT_ONLY = /^(\d+(?:\.\d+)?)(?:kg|lb)$/i;
 const BARE_NUM = /^\d+$/;
 const BAR_TOKEN = /^bar$/i;
 const REPS_SETS = /^(\d+)x(\d+)$/i;
-// A bare reps token (`x8`) — reps with no set count (one set, or the superset
+// A bare reps token (`x8` or `8x`) — reps with no set count (one set, or the superset
 // line's outer count applies — see parseLine.ts).
-const REPS_ONLY = /^x(\d+)$/i;
+const REPS_ONLY = /^(?:x(\d+)|(\d+)x)$/i;
 // A comma-separated list of rep counts (`8,8,6`) — one set per entry.
 const REP_LIST = /^\d+(?:,\d+)+$/;
 
@@ -283,7 +283,7 @@ function parseClean(rawTokens: Token[]): RawLine {
     }
     const ro = t.text.match(REPS_ONLY);
     if (ro) {
-      repsTokens.push({ token: t, index, sets: 1, parts: [{ reps: Number(ro[1]), start: t.start, end: t.end }] });
+      repsTokens.push({ token: t, index, sets: 1, parts: [{ reps: Number(ro[1] ?? ro[2]), start: t.start, end: t.end }] });
       return;
     }
     if (REP_LIST.test(t.text) && isRepListInContext(tokens, index, weights.length > 0)) {

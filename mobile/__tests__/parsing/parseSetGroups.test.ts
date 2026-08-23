@@ -391,6 +391,12 @@ describe('parseSetGroups — weight-only lines', () => {
 });
 
 describe('parseSetGroups — bare reps token (`x8`)', () => {
+  it('reads the trailing-x form `8x` as 8 reps too', () => {
+    const r = parseSetGroups('shoulder rotation 8x');
+    expect(r.namePart).toBe('shoulder rotation');
+    expect(r.groups[0]).toMatchObject({ weightKg: null, reps: 8, sets: 1 });
+  });
+
   it('reads `x8` as 8 reps of one set', () => {
     const line = 'shoulder rotation x8';
     const r = parseSetGroups(line);

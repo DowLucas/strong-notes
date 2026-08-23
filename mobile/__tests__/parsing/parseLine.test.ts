@@ -75,4 +75,12 @@ describe('parseLineSegments', () => {
     expect(line.slice(segs[0].offset + g0.start, segs[0].offset + g0.end)).toBe('5kg db OHSP x8');
     expect(line.slice(segs[1].offset + g1.start, segs[1].offset + g1.end)).toBe('x8');
   });
+
+  it('splits a superset whose parts use the `8x` reps form', () => {
+    const segs = parseLineSegments('SS: (5kg db OHSP 8x + shoulder rotation 8x) x3');
+    expect(segs.map((s) => [s.parsed.namePart, s.parsed.groups[0]?.reps, s.parsed.groups[0]?.sets])).toEqual([
+      ['db OHSP', 8, 3],
+      ['shoulder rotation', 8, 3],
+    ]);
+  });
 });

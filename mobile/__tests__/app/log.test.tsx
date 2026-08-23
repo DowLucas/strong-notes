@@ -188,6 +188,67 @@ describe('LogScreen (notes-style)', () => {
     });
   });
 
+  it('shows a confirm bar for pending groups and confirms them all in one tap (skipping clarifying questions)', async () => {
+    // Two lines need confirmation; one of them carries a clarifying question
+    // and must be left for the user.
+    mockResolveLine.mockReset().mockImplementation(async (line: string) => {
+      if (line === 'As Drip') {
+        return {
+          resolvedTokens: [],
+          unresolvedTokens: ['As', 'Drip'],
+          llmGuess: {
+            exerciseName: 'Dip',
+            muscles: ['CHEST'],
+            clarifyingQuestion: { token: 'As', question: 'What does "As" mean?', alternatives: ['Assisted', 'AMRAP'] },
+          },
+        };
+      }
+      return {
+        resolvedTokens: [],
+        unresolvedTokens: line.split(' '),
+        llmGuess: { exerciseName: line === 'bb squats' ? 'Barbell Squat' : 'Barbell Rows', equipment: 'Barbell', equipmentToken: 'bb', muscles: ['QUADS'] },
+      };
+    });
+    const createExercise = jest.fn().mockImplementation(async ({ name }: { name: string }) => ({ id: `ex-${name}`, name, category: 'COMPOUND', createdAt: '' }));
+    const createAbbreviation = jest.fn().mockImplementation(async (input: { token: string }) => ({ id: `a-${input.token}`, token: input.token, source: 'USER_ADDED', createdAt: '' }));
+    (useAuth as jest.Mock).mockReturnValue({ api: { resolveLine: mockResolveLine, createExercise, createAbbreviation } });
+
+    await render(<LogScreen />);
+    expect(screen.queryByText(/to confirm/)).toBeNull();
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    await fireEvent.changeText(input, 'bb squats 60kg 8x3\nbb rows 40kg 8x3\nAs Drip 8x3');
+
+    await waitFor(() => expect(screen.getByText('3 exercises to confirm')).toBeTruthy(), { timeout: 3000 });
+    expect(screen.getAllByText(/Barbell Squat/).length).toBeGreaterThan(0);
+
+    // Only the two groups without a clarifying question are bulk-confirmable.
+    await fireEvent.press(screen.getByRole('button', { name: 'Confirm all (2)' }));
+
+    await waitFor(() => {
+      expect(createExercise).toHaveBeenCalledWith({ name: 'Barbell Squat', muscles: ['QUADS'] });
+      expect(createExercise).toHaveBeenCalledWith({ name: 'Barbell Rows', muscles: ['QUADS'] });
+    });
+    // The clarifying-question group is not auto-confirmed…
+    expect(createExercise).not.toHaveBeenCalledWith(expect.objectContaining({ name: expect.stringContaining('Dip') }));
+    // …and the bar says so.
+    await waitFor(() => expect(screen.getByText('1 needs an answer — tap it')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('2 exercises confirmed')).toBeTruthy());
+  });
+
+  it('dismisses the confirm bar for the current pending set', async () => {
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    mockResolveLine.mockReset().mockResolvedValue({
+      resolvedTokens: [],
+      unresolvedTokens: ['squats'],
+      llmGuess: { exerciseName: 'Squat', muscles: ['QUADS'] },
+    });
+    await fireEvent.changeText(input, 'squats 60kg 8x3');
+    await waitFor(() => expect(screen.getByText('1 exercise to confirm')).toBeTruthy(), { timeout: 3000 });
+    await fireEvent.press(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByText('1 exercise to confirm')).toBeNull();
+  });
+
   it('confirms a multi-word name: binds every name token to the exercise and caches them locally', async () => {
     mockResolveLine.mockReset().mockResolvedValue({
       resolvedTokens: [],

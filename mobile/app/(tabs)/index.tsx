@@ -14,6 +14,7 @@ import {
 import { getCachedAbbreviations } from '@/src/db/abbreviationsRepo';
 import { NotesEditor, type HighlightSpan } from '@/src/components/NotesEditor';
 import { Toast, useToast } from '@/components/Toast';
+import { ConfirmBar, type PendingGroup } from '@/src/components/ConfirmBar';
 import { upsertCachedAbbreviations } from '@/src/db/abbreviationsRepo';
 import type { Abbreviation } from '@/lib/api';
 import { EntryPopover } from '@/src/components/EntryPopover';
@@ -59,6 +60,10 @@ export default function LogScreen() {
   const [priorSessions, setPriorSessions] = useState<Record<string, ExerciseHistory[]>>({});
 
   const toast = useToast();
+  // Bulk confirm: progress while running, and the pending-set signature the
+  // user dismissed (the bar comes back when a different set is pending).
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [dismissedPending, setDismissedPending] = useState<string | null>(null);
   // Edits made since the user last left writing mode (keyboard dismissed);
   // only then is there something to confirm as saved.
   const dirtyRef = useRef(false);
@@ -216,6 +221,11 @@ export default function LogScreen() {
 
   async function handleConfirm(groupEntries: ScannedEntry[], modifierValue?: string) {
     setPopoverGroupId(null);
+    await confirmGroup(groupEntries, modifierValue);
+  }
+
+  /** Confirms one group (same path for the popover and bulk confirm). Returns false on failure. */
+  async function confirmGroup(groupEntries: ScannedEntry[], modifierValue?: string): Promise<boolean> {
     const first = groupEntries[0];
     try {
       // A clarifying-question answer (e.g. "Assisted" for "As") is woven into
@@ -254,13 +264,44 @@ export default function LogScreen() {
         groupIds.has(e.id) ? { ...e, status: 'resolved' as const, exerciseId: exercise.id } : e,
       );
       applyEntries(updated);
-      await persist(text, updated);
+      await persist(textRef.current, updated);
       setError(null);
+      return true;
     } catch (err) {
       // A server-side rejection (e.g. validation) is actionable — show its
       // message rather than the generic "couldn't load" banner.
       setError(err instanceof ApiError ? `Couldn't save exercise: ${err.message}` : ERROR_MESSAGE);
+      return false;
     }
+  }
+
+  // Unconfirmed groups, one entry per group (for the bottom confirm bar).
+  const pendingGroups: PendingGroup[] = [];
+  {
+    const seen = new Set<string>();
+    for (const e of entries) {
+      if (e.status !== 'needs-confirm' || seen.has(e.groupId)) continue;
+      seen.add(e.groupId);
+      pendingGroups.push({ groupId: e.groupId, label: e.exerciseName || e.rawText, needsAnswer: !!e.clarifyingQuestion });
+    }
+  }
+  const pendingSignature = pendingGroups.map((g) => g.groupId).sort().join('|');
+  const showConfirmBar = pendingGroups.length > 0 && dismissedPending !== pendingSignature && popoverGroupId == null;
+
+  async function handleConfirmAll() {
+    const targets = pendingGroups.filter((g) => !g.needsAnswer);
+    setBulkProgress({ done: 0, total: targets.length });
+    let confirmed = 0;
+    for (const target of targets) {
+      const groupEntries = entriesRef.current.filter((e) => e.groupId === target.groupId);
+      if (groupEntries.length === 0) continue;
+      const ok = await confirmGroup(groupEntries);
+      if (!ok) break; // error banner already shown; leave the rest pending
+      confirmed += 1;
+      setBulkProgress({ done: confirmed, total: targets.length });
+    }
+    setBulkProgress(null);
+    if (confirmed > 0) toast.show(t('log.confirmBar.confirmed', { count: confirmed }));
   }
 
   const spans: HighlightSpan[] = entries
@@ -313,6 +354,14 @@ export default function LogScreen() {
           </View>
         </Pressable>
       </Modal>
+      {showConfirmBar ? (
+        <ConfirmBar
+          pending={pendingGroups}
+          progress={bulkProgress}
+          onConfirmAll={() => void handleConfirmAll()}
+          onDismiss={() => setDismissedPending(pendingSignature)}
+        />
+      ) : null}
       <Toast message={toast.message} />
     </View>
   );
