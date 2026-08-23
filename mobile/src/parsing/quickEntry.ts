@@ -116,8 +116,11 @@ export async function parseQuickEntryLine(api: ApiClient, line: string): Promise
 
   const response = await api.resolveLine(line);
   const numeric = parseNumericTokens(line);
-  const exerciseToken = pickExercise(response.resolvedTokens.filter((t) => t.type === 'exercise'));
-  const modifierToken = response.resolvedTokens.find((t) => t.type === 'modifier' && t.modifierType === 'equipment');
+  // The server encodes an empty token list as null (Go nil slice) — treat it as [].
+  const resolvedTokens = response.resolvedTokens ?? [];
+  const unresolvedTokens = response.unresolvedTokens ?? [];
+  const exerciseToken = pickExercise(resolvedTokens.filter((t) => t.type === 'exercise'));
+  const modifierToken = resolvedTokens.find((t) => t.type === 'modifier' && t.modifierType === 'equipment');
 
   if (response.llmGuess) {
     // The clarifying-question token (if any) and the equipment-shorthand
@@ -132,7 +135,7 @@ export async function parseQuickEntryLine(api: ApiClient, line: string): Promise
     const nonExerciseTokens = new Set(
       [clarifyingQuestion?.token, equipmentToken].filter((t): t is string => Boolean(t)).map((t) => t.toUpperCase()),
     );
-    const exerciseTokens = response.unresolvedTokens.filter((t) => !nonExerciseTokens.has(t.toUpperCase()));
+    const exerciseTokens = unresolvedTokens.filter((t) => !nonExerciseTokens.has(t.toUpperCase()));
     const llmNumeric = {
       weightKg: response.llmGuess.weightKg ?? numeric.weightKg,
       reps: response.llmGuess.reps ?? numeric.reps,
@@ -171,7 +174,7 @@ export async function parseQuickEntryLine(api: ApiClient, line: string): Promise
     };
   }
 
-  if (response.unresolvedTokens.length > 0) {
+  if (unresolvedTokens.length > 0) {
     return { rawText: line, status: 'unresolved', parsedBy: 'DICTIONARY' };
   }
 

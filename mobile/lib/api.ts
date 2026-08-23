@@ -122,8 +122,9 @@ export interface LlmGuess {
 }
 
 export interface ResolveLineResponse {
-  resolvedTokens: ResolvedToken[];
-  unresolvedTokens: string[];
+  /** May be null when nothing resolved (server encodes an empty slice as null). */
+  resolvedTokens: ResolvedToken[] | null;
+  unresolvedTokens: string[] | null;
   llmGuess?: LlmGuess;
 }
 

@@ -187,6 +187,20 @@ describe('parseQuickEntryLine', () => {
     expect(result.clarifyingQuestion?.token).toBe('As');
   });
 
+  it('tolerates a null resolvedTokens from the server (Go nil slice) on the LLM path', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: null,
+        unresolvedTokens: ['romanian', 'dl'],
+        llmGuess: { exerciseName: 'Romanian Dl', equipment: null, muscles: [] },
+      }),
+    });
+    const result = await parseQuickEntryLine(api, 'romanian dl');
+    expect(result.status).toBe('needs-confirm');
+    expect(result.exerciseName).toBe('Romanian Dl');
+    expect(result.exerciseTokens).toEqual(['romanian', 'dl']);
+  });
+
   it('falls back to unresolvedTokens[0] when there is no clarifying question (unchanged behavior)', async () => {
     const api = fakeApi({
       resolveLine: jest.fn().mockResolvedValue({
