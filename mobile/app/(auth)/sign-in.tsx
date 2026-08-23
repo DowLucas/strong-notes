@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import { Text } from '@/components/Text';
 import { Button } from '@/components/Button';
 import { Field } from '@/components/Field';
@@ -9,14 +11,42 @@ import { ContentContainer } from '@/components/ContentContainer';
 import { showAlert } from '@/lib/app-alert';
 import { useAuth } from '@/lib/auth';
 import { ApiError } from '@/lib/api';
-import { colors, spacing, typography } from '@/lib/theme';
+import { colors, radii, spacing, typography } from '@/lib/theme';
 
 type Stage = 'email' | 'token';
+
+/** Error code `AppleAuthentication.signInAsync` rejects with when the user dismisses the sheet. */
+const APPLE_CANCELED = 'ERR_REQUEST_CANCELED';
+
+/**
+ * True once we know the device can present the native Apple sign-in sheet.
+ * Only iOS ever qualifies; Android/web resolve to false without touching the
+ * native module.
+ */
+function useAppleSignInAvailable(): boolean {
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    let active = true;
+    AppleAuthentication.isAvailableAsync()
+      .then((ok) => {
+        if (active) setAvailable(ok);
+      })
+      .catch(() => {
+        /* treat as unavailable */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  return available;
+}
 
 export default function SignIn() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const { api, signInWithToken } = useAuth();
+  const { api, signInWithToken, signInWithApple } = useAuth();
+  const appleAvailable = useAppleSignInAvailable();
 
   const [stage, setStage] = useState<Stage>('email');
   const [email, setEmail] = useState('');
@@ -54,6 +84,36 @@ export default function SignIn() {
         title: t('signIn.verifyFailed'),
         message: expired ? t('signIn.verifyFailedBody') : t('errors.generic'),
       });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signInApple() {
+    if (busy) return;
+    try {
+      // Apple wants the SHA-256 of the nonce in the identity token; the
+      // backend gets the raw value and re-hashes it to verify.
+      const nonce = Crypto.randomUUID();
+      const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, nonce);
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
+      });
+      if (!credential.identityToken) throw new Error('missing identity token');
+      // Apple only returns the name on the very first sign-in.
+      const name =
+        [credential.fullName?.givenName, credential.fullName?.familyName].filter(Boolean).join(' ') ||
+        undefined;
+      setBusy(true);
+      await signInWithApple(credential.identityToken, nonce, name);
+    } catch (err) {
+      // The user dismissed the system sheet — nothing to report.
+      if ((err as { code?: string } | null)?.code === APPLE_CANCELED) return;
+      await showAlert({ title: t('signIn.appleFailed'), message: t('errors.generic') });
     } finally {
       setBusy(false);
     }
@@ -97,6 +157,25 @@ export default function SignIn() {
               <Button onPress={sendLink} disabled={busy || !email.trim()}>
                 {busy ? t('signIn.sending') : t('signIn.sendLink')}
               </Button>
+              {appleAvailable && (
+                <>
+                  <View style={styles.dividerRow}>
+                    <View style={styles.dividerLine} />
+                    <Text variant="monoLabel" color={colors.lead}>
+                      {t('signIn.or')}
+                    </Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+                  <AppleAuthentication.AppleAuthenticationButton
+                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                    buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                    cornerRadius={radii.md}
+                    style={styles.appleButton}
+                    onPress={signInApple}
+                    testID="apple-sign-in"
+                  />
+                </>
+              )}
             </>
           ) : (
             <>
@@ -139,4 +218,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: spacing.s4,
   },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s3,
+    marginVertical: spacing.s3,
+  },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.ruleSoft },
+  appleButton: { height: 52, width: '100%' },
 });

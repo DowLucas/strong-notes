@@ -21,10 +21,12 @@ const config: ExpoConfig = {
     // instead of stretching edge to edge.
     supportsTablet: true,
     bundleIdentifier: 'com.dowlucas.strongnotes',
+    // Sign in with Apple entitlement (native button on the sign-in screen).
+    usesAppleSignIn: true,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
       NSPhotoLibraryUsageDescription:
-        'Allow Scaffold to access your photo library to upload a profile picture.',
+        'Allow Strong Notes to access your photo library to upload a profile picture.',
       ...(isDevHttpBackend ? { NSAppTransportSecurity: { NSAllowsArbitraryLoads: true } } : {}),
     },
   },
@@ -65,24 +67,29 @@ const config: ExpoConfig = {
     [
       'expo-secure-store',
       {
-        faceIDPermission: 'Allow Scaffold to access Face ID.',
+        faceIDPermission: 'Allow Strong Notes to access Face ID.',
       },
     ],
     [
       'expo-image-picker',
       {
         photosPermission:
-          'Allow Scaffold to access your photo library to upload a profile picture.',
+          'Allow Strong Notes to access your photo library to upload a profile picture.',
       },
     ],
     'expo-localization',
     'expo-sqlite',
+    'expo-apple-authentication',
   ],
   experiments: {
     typedRoutes: true,
   },
+  owner: 'lucasdow1',
   extra: {
     apiBaseUrl,
+    eas: {
+      projectId: '86cfc963-b04d-4dd7-9f9a-d7d0f89a1d13',
+    },
   },
 };
 

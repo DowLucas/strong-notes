@@ -15,7 +15,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { createClient, defaultBaseUrl, type ApiClient } from './api';
+import { createClient, defaultBaseUrl, type ApiClient, type TokenResponse } from './api';
 import {
   clearSession,
   loadSession,
@@ -31,6 +31,12 @@ interface AuthContextValue {
   api: ApiClient;
   /** Persist a token: fetch the profile, store `{ token, user }`, sign in. */
   signInWithToken: (token: string) => Promise<void>;
+  /**
+   * Native Sign in with Apple: exchange Apple's identity token (+ the raw
+   * nonce used for the request and, on first sign-in, the user's name) for a
+   * session and store it.
+   */
+  signInWithApple: (identityToken: string, rawNonce: string, name?: string) => Promise<void>;
   /** Drop the session locally (best-effort server logout first). */
   signOut: () => Promise<void>;
   /** Re-fetch the current profile and update the stored session. */
@@ -82,17 +88,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [applySession]);
 
+  // Every sign-in method ends the same way: persist `{ token, user }` and
+  // make it the live session.
+  const adoptSession = useCallback(
+    async ({ token, user }: TokenResponse) => {
+      const next: Session = { token, user };
+      await saveSession(next);
+      applySession(next);
+    },
+    [applySession],
+  );
+
   const signInWithToken = useCallback(
     async (magicLinkToken: string) => {
       // The magic-link token is single-use and only good for the verify
       // exchange — it must be traded in for a session JWT before any
       // authenticated request (e.g. /api/me) will accept it.
-      const { token, user } = await api.verify(magicLinkToken);
-      const next: Session = { token, user };
-      await saveSession(next);
-      applySession(next);
+      await adoptSession(await api.verify(magicLinkToken));
     },
-    [api, applySession],
+    [api, adoptSession],
+  );
+
+  const signInWithApple = useCallback(
+    async (identityToken: string, rawNonce: string, name?: string) => {
+      await adoptSession(
+        await api.appleNative({ identity_token: identityToken, nonce: rawNonce, name }),
+      );
+    },
+    [api, adoptSession],
   );
 
   const signOut = useCallback(async () => {
@@ -114,8 +137,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [api, applySession]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ loading, session, api, signInWithToken, signOut, refreshMe }),
-    [loading, session, api, signInWithToken, signOut, refreshMe],
+    () => ({ loading, session, api, signInWithToken, signInWithApple, signOut, refreshMe }),
+    [loading, session, api, signInWithToken, signInWithApple, signOut, refreshMe],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

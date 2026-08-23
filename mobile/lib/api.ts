@@ -55,6 +55,19 @@ export interface TokenResponse {
   user: User;
 }
 
+/** Body for native Sign in with Apple (`POST /api/auth/apple/native`). */
+export interface AppleNativeInput {
+  /** Apple's identity JWT from `AppleAuthentication.signInAsync`. */
+  identity_token: string;
+  /**
+   * The raw (unhashed) nonce the client generated. Apple embeds its SHA-256
+   * in the JWT; the server re-hashes this value and compares.
+   */
+  nonce: string;
+  /** Display name — Apple only returns it on the very first sign-in. */
+  name?: string;
+}
+
 export interface UpdateMeInput {
   name?: string;
 }
@@ -185,6 +198,8 @@ export type GetToken = () => Promise<string | null>;
 export interface ApiClient {
   requestMagicLink(email: string): Promise<MagicLinkResponse>;
   verify(token: string): Promise<TokenResponse>;
+  /** Exchange an Apple identity token for a session; same shape as `verify`. */
+  appleNative(input: AppleNativeInput): Promise<TokenResponse>;
   getMe(): Promise<User>;
   updateMe(patch: UpdateMeInput): Promise<User>;
   deleteMe(): Promise<void>;
@@ -268,6 +283,12 @@ export function createClient(baseUrl: string, getToken: GetToken, opts: ClientOp
       request<TokenResponse>('/api/auth/verify', {
         method: 'POST',
         body: JSON.stringify({ token }),
+      }),
+
+    appleNative: (input) =>
+      request<TokenResponse>('/api/auth/apple/native', {
+        method: 'POST',
+        body: JSON.stringify(input),
       }),
 
     getMe: () => request<User>('/api/me'),

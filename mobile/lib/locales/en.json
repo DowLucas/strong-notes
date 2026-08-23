@@ -63,6 +63,7 @@
     }
   },
   "signIn": {
+    "appleFailed": "Sign in with Apple failed",
     "checkEmail": "Check your email",
     "checkEmailBody": "We sent a sign-in code to {{email}}. Paste it below to continue.",
     "couldNotSend": "Could not send magic link",
@@ -72,6 +73,7 @@
     "emailPlaceholder": "your@email.com",
     "eyebrow": "sign in",
     "headline": "Welcome to\nScaffold.",
+    "or": "or",
     "sending": "Sending…",
     "sendLink": "Send magic link",
     "subtitle": "Sign in with a magic link. Enter your email and we'll send you a one-time sign-in code.",
