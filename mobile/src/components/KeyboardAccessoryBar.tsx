@@ -1,4 +1,5 @@
 import { ScrollView, Pressable, StyleSheet, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { Text } from '@/components/Text';
 import { colors, spacing, typography } from '@/lib/theme';
 
@@ -37,6 +38,7 @@ export function KeyboardAccessoryBar({
   grammar: GrammarChip[];
   onInsert: (insert: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.root}>
       {confirmLabel ? (
@@ -44,8 +46,9 @@ export function KeyboardAccessoryBar({
           <Pressable
             onPress={onConfirm}
             accessibilityRole="button"
-            accessibilityLabel={`Confirm ${confirmLabel}`}
-            style={styles.island}
+            accessibilityLabel={t('log.accessory.confirm', { name: confirmLabel })}
+            accessibilityHint={t('log.accessory.confirmHint')}
+            style={({ pressed }) => [styles.island, pressed && styles.pressed]}
           >
             <Text style={styles.islandText} numberOfLines={1}>
               ✓ Confirm {confirmLabel}
@@ -57,8 +60,9 @@ export function KeyboardAccessoryBar({
           <Pressable
             onPress={onDetails}
             accessibilityRole="button"
-            accessibilityLabel={`${detailsLabel} details`}
-            style={[styles.island, styles.islandDetails]}
+            accessibilityLabel={t('log.accessory.details', { name: detailsLabel })}
+            accessibilityHint={t('log.accessory.detailsHint')}
+            style={({ pressed }) => [styles.island, styles.islandDetails, pressed && styles.pressed]}
           >
             <Text style={[styles.islandText, styles.islandDetailsText]} numberOfLines={1}>
               {detailsLabel} ›
@@ -79,8 +83,8 @@ export function KeyboardAccessoryBar({
               key={`sug-${s}`}
               onPress={() => onComplete(s)}
               accessibilityRole="button"
-              accessibilityLabel={`Insert ${s}`}
-              style={styles.chip}
+              accessibilityLabel={t('log.accessory.insertToken', { token: s })}
+              style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
             >
               <Text style={styles.chipText} numberOfLines={1}>
                 {s}
@@ -94,7 +98,7 @@ export function KeyboardAccessoryBar({
               onPress={() => onInsert(g.insert)}
               accessibilityRole="button"
               accessibilityLabel={g.a11yLabel}
-              style={[styles.chip, styles.grammarChip]}
+              style={({ pressed }) => [styles.chip, styles.grammarChip, pressed && styles.pressed]}
             >
               <Text style={[styles.chipText, styles.grammarText]} numberOfLines={1}>
                 {g.label}
@@ -110,8 +114,8 @@ export function KeyboardAccessoryBar({
               key={`digit-${d}`}
               onPress={() => onInsert(d)}
               accessibilityRole="button"
-              accessibilityLabel={d}
-              style={styles.digit}
+              accessibilityLabel={d === '.' ? t('log.accessory.decimalPoint') : d}
+              style={({ pressed }) => [styles.digit, pressed && styles.pressed]}
             >
               <Text style={styles.digitText}>{d}</Text>
             </Pressable>
@@ -201,4 +205,5 @@ const styles = StyleSheet.create({
     ...typography.monoBodyL,
     color: colors.graphite,
   },
+  pressed: { opacity: 0.7 },
 });

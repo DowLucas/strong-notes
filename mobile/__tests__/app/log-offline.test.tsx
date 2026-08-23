@@ -8,7 +8,8 @@ import { getLocalSession } from '@/src/db/sessionsRepo';
 jest.mock('@/lib/auth');
 
 function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 beforeEach(() => {
@@ -21,7 +22,7 @@ describe('LogScreen offline-first behavior', () => {
     (useAuth as jest.Mock).mockReturnValue({ api: { resolveLine } });
 
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     await fireEvent.changeText(input, 'did RDL 40kg 8x3');
 
     await waitFor(

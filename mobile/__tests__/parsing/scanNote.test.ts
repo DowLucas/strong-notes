@@ -425,3 +425,22 @@ describe('scanNote', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+describe('scanNote network failure reporting', () => {
+  it('reports a network failure through onNetworkError and leaves the line unhighlighted', async () => {
+    const api = fakeApi({ resolveLine: jest.fn().mockRejectedValue(new TypeError('Network request failed')) });
+    const onNetworkError = jest.fn();
+    const entries = await scanNote(api, 'squats 60kg 8x3', [], { onNetworkError });
+    expect(entries).toEqual([]);
+    expect(onNetworkError).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report a server-side ApiError as a network failure', async () => {
+    const { ApiError } = jest.requireActual('@/lib/api');
+    const api = fakeApi({ resolveLine: jest.fn().mockRejectedValue(new ApiError(422, 'bad line')) });
+    const onNetworkError = jest.fn();
+    const entries = await scanNote(api, 'squats 60kg 8x3', [], { onNetworkError });
+    expect(entries).toEqual([]);
+    expect(onNetworkError).not.toHaveBeenCalled();
+  });
+});

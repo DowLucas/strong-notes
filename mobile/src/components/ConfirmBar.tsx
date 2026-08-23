@@ -6,35 +6,58 @@ import { colors, radii, spacing, typography } from '@/lib/theme';
 
 export type PendingGroup = {
   groupId: string;
-  /** Guessed exercise name (or raw text) for the preview line. */
+  /** Guessed exercise name (or raw text) for the chip. */
   label: string;
   /** True when this group has a clarifying question and can't be bulk-confirmed. */
   needsAnswer: boolean;
 };
 
 /**
- * Bottom bar listing every unconfirmed (amber) group in the note with a
- * one-tap "Confirm all", so the user doesn't have to open each highlight.
- * Groups with a clarifying question are excluded from the bulk action and
- * called out separately. `progress` (n of total) is shown while confirming.
+ * Bottom bar listing every unconfirmed (amber) group in the note. Each name
+ * is a chip that opens that group's sheet; "Confirm all N" confirms the ones
+ * without a clarifying question in one tap. `progress` (n of total) is shown
+ * while confirming. When `collapsed`, only a small "N to confirm ›" pill is
+ * shown (bottom-right) so the editor stays clear until the user wants it back.
  */
 export function ConfirmBar({
   pending,
   progress,
+  collapsed,
   onConfirmAll,
+  onOpenGroup,
   onDismiss,
+  onExpand,
 }: {
   pending: PendingGroup[];
   progress: { done: number; total: number } | null;
+  collapsed: boolean;
   onConfirmAll: () => void;
+  onOpenGroup: (groupId: string) => void;
   onDismiss: () => void;
+  onExpand: () => void;
 }) {
   const { t } = useTranslation();
   if (pending.length === 0) return null;
   const confirmable = pending.filter((p) => !p.needsAnswer);
   const needAnswer = pending.length - confirmable.length;
-  const preview = pending.map((p) => p.label).join(' · ');
   const busy = progress != null;
+
+  if (collapsed) {
+    const pillLabel = t('log.confirmBar.pill', { count: pending.length });
+    return (
+      <View style={styles.pillWrap} pointerEvents="box-none">
+        <Pressable
+          onPress={onExpand}
+          style={({ pressed }) => [styles.pill, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel={pillLabel}
+          accessibilityHint={t('log.confirmBar.pillHint')}
+        >
+          <Text style={styles.pillLabel}>{pillLabel} ›</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.bar} accessibilityRole="summary">
@@ -45,16 +68,32 @@ export function ConfirmBar({
         <Pressable
           onPress={onDismiss}
           hitSlop={10}
+          style={({ pressed }) => [styles.hideBtn, pressed && styles.pressed]}
           accessibilityRole="button"
           accessibilityLabel={t('log.confirmBar.dismiss')}
           disabled={busy}
         >
-          <Feather name="x" size={18} color={colors.lead} />
+          <Feather name="x" size={20} color={colors.lead} />
         </Pressable>
       </View>
-      <Text variant="bodyS" style={styles.preview} numberOfLines={1}>
-        {preview}
-      </Text>
+      <View style={styles.chips}>
+        {pending.map((p) => (
+          <Pressable
+            key={p.groupId}
+            onPress={() => onOpenGroup(p.groupId)}
+            disabled={busy}
+            style={({ pressed }) => [styles.chip, p.needsAnswer && styles.chipNeedsAnswer, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={p.label}
+            accessibilityHint={t('log.confirmBar.openGroupHint')}
+          >
+            <Text variant="bodyS" style={styles.chipLabel} numberOfLines={1}>
+              {p.label}
+            </Text>
+            <Feather name="chevron-right" size={16} color={colors.graphite} />
+          </Pressable>
+        ))}
+      </View>
       {needAnswer > 0 ? (
         <Text variant="bodyS" style={styles.needAnswer}>
           {t('log.confirmBar.needsAnswer', { count: needAnswer })}
@@ -64,7 +103,7 @@ export function ConfirmBar({
         <Pressable
           onPress={onConfirmAll}
           disabled={busy}
-          style={({ pressed }) => [styles.button, (pressed || busy) && styles.buttonPressed]}
+          style={({ pressed }) => [styles.button, (pressed || busy) && styles.pressed]}
           accessibilityRole="button"
           accessibilityLabel={
             busy
@@ -88,7 +127,7 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.s3,
     marginBottom: spacing.s3,
     padding: spacing.s3,
-    gap: spacing.s1,
+    gap: spacing.s2,
     backgroundColor: colors.paper,
     borderWidth: 1,
     borderColor: colors.graphite,
@@ -96,16 +135,40 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { color: colors.graphite },
-  preview: { color: colors.lead },
+  hideBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginRight: -spacing.s2 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s2 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s1,
+    minHeight: 44,
+    paddingLeft: spacing.s3,
+    paddingRight: spacing.s2,
+    borderRadius: radii.pill,
+    backgroundColor: colors.citrinePale,
+    borderWidth: 1,
+    borderColor: colors.citrine,
+  },
+  chipNeedsAnswer: { borderStyle: 'dashed' },
+  chipLabel: { color: colors.graphite, maxWidth: 220 },
   needAnswer: { color: colors.brick },
   button: {
     alignSelf: 'flex-end',
-    marginTop: spacing.s1,
+    minHeight: 44,
+    justifyContent: 'center',
     paddingHorizontal: spacing.s4,
-    paddingVertical: spacing.s2,
     borderRadius: radii.pill,
     backgroundColor: colors.graphite,
   },
-  buttonPressed: { opacity: 0.7 },
   buttonLabel: { ...typography.bodyEmphasis, color: colors.paper },
+  pillWrap: { alignItems: 'flex-end', paddingHorizontal: spacing.s3, paddingBottom: spacing.s3 },
+  pill: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.s4,
+    borderRadius: radii.pill,
+    backgroundColor: colors.graphite,
+  },
+  pillLabel: { ...typography.bodyEmphasis, color: colors.paper },
+  pressed: { opacity: 0.7 },
 });

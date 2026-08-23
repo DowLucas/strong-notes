@@ -1,3 +1,4 @@
+import '@/lib/i18n';
 import { render, fireEvent, screen } from '@testing-library/react-native';
 import { KeyboardAccessoryBar, type GrammarChip } from '@/src/components/KeyboardAccessoryBar';
 
@@ -25,7 +26,7 @@ describe('KeyboardAccessoryBar', () => {
     const { onInsert } = await setup();
     // A representative digit and the decimal point are present.
     await fireEvent.press(screen.getByLabelText('7'));
-    await fireEvent.press(screen.getByLabelText('.'));
+    await fireEvent.press(screen.getByLabelText('decimal point'));
     expect(onInsert).toHaveBeenNthCalledWith(1, '7');
     expect(onInsert).toHaveBeenNthCalledWith(2, '.');
   });
