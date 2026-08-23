@@ -1,7 +1,7 @@
 import { resetDbForTests } from '@/src/db/client';
 import { upsertLocalSession, type LocalSetEntry } from '@/src/db/sessionsRepo';
 import { cacheAbbreviations } from '@/src/db/abbreviationsRepo';
-import { listStatsRows } from '@/src/db/statsRepo';
+import { listStatsRows, listExerciseNames } from '@/src/db/statsRepo';
 
 beforeEach(() => {
   resetDbForTests();
@@ -20,10 +20,11 @@ describe('listStatsRows', () => {
       entry({ id: 'a1', order: 1, weightKg: 90 }),
       entry({ id: 'a0', order: 0, weightKg: 100 }),
       entry({ id: 'a2', order: 2, exerciseId: null }),            // unconfirmed → excluded
-      entry({ id: 'a3', order: 3, exerciseId: 'ex-pu', weightKg: null, reps: 10 }),
+      entry({ id: 'a3', order: 3, exerciseId: 'ex-pu', weightKg: null, reps: 10, rawText: 'pullups' }),
     ] });
     await upsertLocalSession({ date: '2026-06-01', notes: null, synced: 0, entries: [
       entry({ id: 'b0', order: 0, weightKg: 80 }),
+      entry({ id: 'b1', order: 1, exerciseId: 'ex-pu', weightKg: null, reps: 8, rawText: 'chins' }),
     ] });
     await cacheAbbreviations([
       { id: '1', token: 'DL', exerciseId: 'ex-dl', exerciseName: 'Barbell Deadlift', source: 'USER_ADDED', createdAt: '' },
@@ -38,8 +39,19 @@ describe('listStatsRows', () => {
       ['ex-dl', '2026-06-01', 0, 80, 'Barbell Deadlift'],
       ['ex-dl', '2026-08-01', 0, 100, 'Barbell Deadlift'],
       ['ex-dl', '2026-08-01', 1, 90, 'Barbell Deadlift'],
+      ['ex-pu', '2026-06-01', 1, null, null],
       ['ex-pu', '2026-08-01', 3, null, null],
     ]);
+  });
+
+  it('carries the most recent raw text per exercise as a name fallback', async () => {
+    const rows = await listStatsRows(null);
+    expect(rows.filter((r) => r.exerciseId === 'ex-pu').map((r) => r.latestRawText)).toEqual(['pullups', 'pullups']);
+    expect(rows.find((r) => r.exerciseId === 'ex-dl')?.latestRawText).toBe('x');
+  });
+
+  it('lists one cached name per exercise id', async () => {
+    await expect(listExerciseNames()).resolves.toEqual({ 'ex-dl': 'Barbell Deadlift' });
   });
 
   it('does not duplicate rows when two tokens map to the same exercise', async () => {

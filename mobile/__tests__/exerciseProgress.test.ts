@@ -1,11 +1,14 @@
 // mobile/__tests__/exerciseProgress.test.ts
 import {
-  computeExerciseProgress, rangeStart, seriesFor, isPr,
-  formatHeadline, formatDelta, relativeDay, type StatsRow,
+  computeExerciseProgress, rangeStart, seriesFor, isPr, prDates, headlineFor, deltaFor,
+  formatHeadline, formatDelta, formatSetLine, formatShortDate, relativeDay, type StatsRow,
 } from '@/lib/exerciseProgress';
 
 function row(p: Partial<StatsRow> & { sessionDate: string }): StatsRow {
-  return { exerciseId: 'ex-dl', exerciseName: 'Barbell Deadlift', weightKg: 100, reps: 5, sets: 3, entryOrder: 0, ...p };
+  return {
+    exerciseId: 'ex-dl', exerciseName: 'Barbell Deadlift', latestRawText: 'DL',
+    weightKg: 100, reps: 5, sets: 3, entryOrder: 0, ...p,
+  };
 }
 
 describe('rangeStart', () => {
@@ -95,9 +98,11 @@ describe('computeExerciseProgress', () => {
     expect(list[1]).toMatchObject({ lastDate: '2026-08-10', sessionCount: 2, name: 'A' });
   });
 
-  it('reports a null name when the cache has none', () => {
-    const [p] = computeExerciseProgress([row({ sessionDate: '2026-08-01', exerciseName: null })]);
-    expect(p.name).toBeNull();
+  it('falls back to the latest raw text when the cache has no name, and null when neither exists', () => {
+    const [raw] = computeExerciseProgress([row({ sessionDate: '2026-08-01', exerciseName: null, latestRawText: 'deads' })]);
+    expect(raw.name).toBe('deads');
+    const [none] = computeExerciseProgress([row({ sessionDate: '2026-08-01', exerciseName: null, latestRawText: null })]);
+    expect(none.name).toBeNull();
   });
 });
 
@@ -115,21 +120,48 @@ describe('seriesFor / isPr', () => {
   });
   it('marks a point as PR when its top weight beats every earlier point', () => {
     expect([0, 1, 2, 3].map((i) => isPr(p, i))).toEqual([false, true, false, true]);
+    expect([...prDates(p)]).toEqual(['2026-07-01', '2026-08-15']);
+  });
+  it('headline and delta follow the metric: est1rm rounds to 0.5 kg, volume to whole kg', () => {
+    expect(headlineFor(p, 'topSet')).toEqual({ value: 100, unit: 'kg' });
+    expect(headlineFor(p, 'est1rm')).toEqual({ value: 110, unit: 'kg' }); // 100 × (1 + 3/30)
+    expect(headlineFor(p, 'volume')).toEqual({ value: 900, unit: 'kg' });
+    expect(deltaFor(p, 'topSet')).toEqual({ value: 10, unit: 'kg' });
+    expect(deltaFor(p, 'est1rm')).toEqual({ value: 5, unit: 'kg' }); // 110 − 105
+    expect(deltaFor(p, 'volume')).toEqual({ value: -450, unit: 'kg' });
+  });
+  it('est1rm headline rounds to the nearest 0.5 kg', () => {
+    const [q] = computeExerciseProgress([row({ sessionDate: '2026-06-01', weightKg: 100, reps: 4 })]);
+    expect(headlineFor(q, 'est1rm')).toEqual({ value: 113.5, unit: 'kg' }); // 113.33…
+    expect(deltaFor(q, 'est1rm')).toBeNull();
   });
 });
 
 describe('formatting', () => {
-  it('formats headlines', () => {
-    expect(formatHeadline({ value: 100, unit: 'kg' })).toBe('100kg');
-    expect(formatHeadline({ value: 22.5, unit: 'kg' })).toBe('22.5kg');
-    expect(formatHeadline({ value: 12, unit: 'reps' })).toBe('×12');
+  it('formats headlines with a spaced unit', () => {
+    expect(formatHeadline({ value: 100, unit: 'kg' })).toBe('100 kg');
+    expect(formatHeadline({ value: 22.5, unit: 'kg' })).toBe('22.5 kg');
+    expect(formatHeadline({ value: 12, unit: 'reps' })).toBe('12 reps');
   });
-  it('formats deltas', () => {
-    expect(formatDelta({ value: 10, unit: 'kg' })).toBe('▲ +10');
-    expect(formatDelta({ value: -5, unit: 'kg' })).toBe('▼ −5');
+  it('formats deltas with sign and unit; null (first session) is empty', () => {
+    expect(formatDelta({ value: 10, unit: 'kg' })).toBe('▲ +10 kg');
+    expect(formatDelta({ value: -2.5, unit: 'kg' })).toBe('▼ −2.5 kg');
     expect(formatDelta({ value: 3, unit: 'reps' })).toBe('▲ +3 reps');
-    expect(formatDelta({ value: 0, unit: 'kg' })).toBe('─');
-    expect(formatDelta(null)).toBe('─');
+    expect(formatDelta({ value: 0, unit: 'kg' })).toBe('±0 kg');
+    expect(formatDelta(null)).toBe('');
+  });
+  it('formats set lines in the Log notation', () => {
+    expect(formatSetLine({ weightKg: 40, reps: 8, sets: 4 })).toBe('40kg×8×4');
+    expect(formatSetLine({ weightKg: 40, reps: 8, sets: 1 })).toBe('40kg×8');
+    expect(formatSetLine({ weightKg: 40, reps: null, sets: null })).toBe('40kg');
+    expect(formatSetLine({ weightKg: null, reps: 12, sets: 3 })).toBe('12 reps × 3');
+    expect(formatSetLine({ weightKg: null, reps: 12, sets: 1 })).toBe('12 reps');
+    expect(formatSetLine({ weightKg: null, reps: 12, sets: 3 }, { weightlessAs: 'bw' })).toBe('BW×12×3');
+    expect(formatSetLine({ weightKg: null, reps: null, sets: null })).toBe('');
+  });
+  it('formats short dates with weekday and an optional year', () => {
+    expect(formatShortDate('2026-07-01', { withYear: false })).toBe('Wed 1 Jul');
+    expect(formatShortDate('2025-12-25', { withYear: true })).toBe('Thu 25 Dec 2025');
   });
   it('formats relative days', () => {
     const today = '2026-08-23'; // a Sunday
