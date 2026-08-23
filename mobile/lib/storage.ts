@@ -11,6 +11,9 @@ import { Platform } from 'react-native';
 import type { User } from './api';
 
 const SESSION_KEY = 'scaffold.session';
+// Kept separately from the session so it survives sign-out / expiry and can
+// pre-fill the sign-in form.
+const LAST_EMAIL_KEY = 'strongnotes.lastEmail';
 
 export interface Session {
   token: string;
@@ -64,4 +67,21 @@ export async function saveSession(session: Session): Promise<void> {
 
 export async function clearSession(): Promise<void> {
   await deleteItem(SESSION_KEY);
+}
+
+/** The email most recently used to sign in, or null. */
+export async function loadLastEmail(): Promise<string | null> {
+  try {
+    return (await getItem(LAST_EMAIL_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveLastEmail(email: string): Promise<void> {
+  try {
+    await setItem(LAST_EMAIL_KEY, email.trim().toLowerCase());
+  } catch {
+    // Non-fatal: the user just types the address again next time.
+  }
 }

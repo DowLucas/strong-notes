@@ -153,3 +153,21 @@ func (h *AbbreviationsHandler) Confirm(w http.ResponseWriter, r *http.Request) {
 	}
 	h.writeAbbreviation(w, r, http.StatusOK, updated)
 }
+
+// Delete removes one of the caller's abbreviations. 204 on success, 404 when
+// the id does not exist or belongs to another user (the two are
+// indistinguishable by design).
+func (h *AbbreviationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFromContext(r.Context())
+	id := chi.URLParam(r, "id")
+	rows, err := h.queries.DeleteAbbreviationForUser(r.Context(), db.DeleteAbbreviationForUserParams{ID: id, UserID: claims.UserID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "delete failed")
+		return
+	}
+	if rows == 0 {
+		writeError(w, http.StatusNotFound, "abbreviation not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

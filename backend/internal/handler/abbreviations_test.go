@@ -255,3 +255,52 @@ func TestAbbreviations_ResponsesUseCamelCase(t *testing.T) {
 		t.Errorf("expected no snake_case keys in List response, got %s", listBody)
 	}
 }
+
+// Delete removes the caller's own abbreviation (204) and refuses to touch
+// another user's row (404, row untouched).
+func TestAbbreviations_DeleteOwnOnly(t *testing.T) {
+	pool := testutil.SharedDB(t)
+	q := db.New(pool)
+	ctx := context.Background()
+	ownerID := ulid.New()
+	otherID := ulid.New()
+	testutil.InsertTestUser(t, pool, ownerID, "abbrev-del-owner@example.com")
+	testutil.InsertTestUser(t, pool, otherID, "abbrev-del-other@example.com")
+	h := NewAbbreviationsHandler(q)
+
+	equipment := "equipment"
+	sled := "sled"
+	row, err := q.CreateAbbreviation(ctx, db.CreateAbbreviationParams{
+		ID: ulid.New(), UserID: ownerID, Token: "ZZDEL", ModifierType: &equipment, ModifierValue: &sled, Source: "USER_ADDED",
+	})
+	if err != nil {
+		t.Fatalf("seed CreateAbbreviation: %v", err)
+	}
+
+	deleteAs := func(userID string) *httptest.ResponseRecorder {
+		routeCtx := chi.NewRouteContext()
+		routeCtx.URLParams.Add("id", row.ID)
+		req := withClaims(httptest.NewRequest(http.MethodDelete, "/api/abbreviations/"+row.ID, nil), userID)
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
+		w := httptest.NewRecorder()
+		h.Delete(w, req)
+		return w
+	}
+
+	if w := deleteAs(otherID); w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for another user's delete, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, err := q.GetAbbreviationByUserAndToken(ctx, db.GetAbbreviationByUserAndTokenParams{UserID: ownerID, Token: "ZZDEL"}); err != nil {
+		t.Fatalf("row must survive a foreign delete attempt: %v", err)
+	}
+
+	if w := deleteAs(ownerID); w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for owner's delete, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, err := q.GetAbbreviationByUserAndToken(ctx, db.GetAbbreviationByUserAndTokenParams{UserID: ownerID, Token: "ZZDEL"}); err == nil {
+		t.Fatalf("row must be gone after the owner's delete")
+	}
+	if w := deleteAs(ownerID); w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 on a repeat delete, got %d", w.Code)
+	}
+}

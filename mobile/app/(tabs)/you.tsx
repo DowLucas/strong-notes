@@ -1,20 +1,22 @@
-import { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useCallback, useState } from 'react';
+import { View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import * as ImagePicker from 'expo-image-picker';
+import { formatDistanceToNow } from 'date-fns';
 import { Text } from '@/components/Text';
 import { Avatar } from '@/components/Avatar';
 import { TopBar } from '@/components/TopBar';
 import { ContentContainer } from '@/components/ContentContainer';
 import { ActionSheet, type ActionSheetOption } from '@/components/ActionSheet';
 import { LanguagePicker } from '@/components/LanguagePicker';
+import { ListGroup, ListRow, ListSectionHeader } from '@/components/ListRow';
 import { showAlert } from '@/lib/app-alert';
 import { isPopupJustClosed } from '@/lib/popup-guard';
 import { useAuth } from '@/lib/auth';
-import { ApiError, type AvatarMimeType, type Abbreviation } from '@/lib/api';
+import { ApiError, type AvatarMimeType } from '@/lib/api';
 import {
   setLanguage,
   SUPPORTED_LANGUAGES,
@@ -23,10 +25,9 @@ import {
 import { colors, spacing, typography } from '@/lib/theme';
 import { getCachedAbbreviations } from '@/src/db/abbreviationsRepo';
 import { seedPriorSessions } from '@/src/db/devSeed';
-import { getLastSessionForExercise } from '@/src/db/sessionsRepo';
+import { getLastSessionForExercise, listUnsyncedSessions } from '@/src/db/sessionsRepo';
 import { syncNow } from '@/src/sync/syncEngine';
-
-const PENDING_ABBREVIATION_SOURCE = 'LLM_SUGGESTED_PENDING_CONFIRM';
+import { useSyncStatus } from '@/src/sync/syncStatus';
 
 function initialsFor(name: string, email: string): string {
   const source = name.trim() || email.trim();
@@ -39,24 +40,38 @@ export default function You() {
   const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const { session, api, refreshMe, signOut } = useAuth();
+  const sync = useSyncStatus();
 
   const [avatarSheet, setAvatarSheet] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [abbreviations, setAbbreviations] = useState<Abbreviation[]>([]);
+  const [deleting, setDeleting] = useState(false);
+  const [termCount, setTermCount] = useState<number | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
 
-  async function refreshAbbreviations() {
-    await syncNow(api);
-    setAbbreviations(await getCachedAbbreviations());
-  }
-
-  useEffect(() => {
-    void refreshAbbreviations();
+  const refreshLocalCounts = useCallback(async () => {
+    const [terms, unsynced] = await Promise.all([getCachedAbbreviations(), listUnsyncedSessions()]);
+    setTermCount(terms.length);
+    setPendingCount(unsynced.length);
   }, []);
 
-  async function handleConfirmAbbreviation(id: string) {
-    await api.confirmAbbreviation(id);
-    await refreshAbbreviations();
+  // Re-read on every focus: the dictionary screen and the Log tab both change
+  // these counts behind our back.
+  useFocusEffect(
+    useCallback(() => {
+      void refreshLocalCounts();
+    }, [refreshLocalCounts]),
+  );
+
+  async function syncNowTapped() {
+    if (sync.running) return;
+    try {
+      await syncNow(api);
+    } catch {
+      // The status store carries the error; the row shows it.
+    } finally {
+      await refreshLocalCounts();
+    }
   }
 
   const user = session?.user;
@@ -66,6 +81,7 @@ export default function You() {
   const selectedLanguage = (SUPPORTED_LANGUAGES as readonly string[]).includes(i18n.language)
     ? (i18n.language as SupportedLanguage)
     : null;
+  const showLanguageRow = SUPPORTED_LANGUAGES.length > 1;
 
   function inferMime(asset: ImagePicker.ImagePickerAsset): AvatarMimeType {
     const m = (asset as { mimeType?: string }).mimeType?.toLowerCase();
@@ -111,6 +127,15 @@ export default function You() {
   }
 
   async function removeAvatar() {
+    const r = await showAlert({
+      title: t('you.avatar.removeConfirmTitle'),
+      message: t('you.avatar.removeConfirmBody'),
+      buttons: [
+        { key: 'cancel', label: t('common.cancel'), style: 'cancel' },
+        { key: 'remove', label: t('you.avatar.remove'), style: 'destructive' },
+      ],
+    });
+    if (r !== 'remove') return;
     setUploading(true);
     try {
       await api.deleteAvatar();
@@ -135,13 +160,13 @@ export default function You() {
   ];
 
   // Dev-only: seed local prior sessions so the Log editor's prior-stats hint is
-  // testable on a fresh install. Refreshes the abbreviation list read-only (a
-  // full sync would replace the seeded dictionary with the server's).
+  // testable on a fresh install. Reads the dictionary read-only (a full sync
+  // would replace the seeded dictionary with the server's).
   async function handleSeedPriorSessions() {
     try {
       const res = await seedPriorSessions();
       const abbrs = await getCachedAbbreviations();
-      setAbbreviations(abbrs);
+      setTermCount(abbrs.length);
 
       // Verify the whole chain on-device so we can see where it breaks: pick a
       // token with an exercise id and confirm history exists under that id.
@@ -183,6 +208,39 @@ export default function You() {
     if (r === 'signout') await signOut();
   }
 
+  async function confirmDeleteAccount() {
+    if (isPopupJustClosed() || deleting) return;
+    const r = await showAlert({
+      title: t('you.deleteAccountConfirmTitle'),
+      message: t('you.deleteAccountConfirmBody'),
+      buttons: [
+        { key: 'cancel', label: t('common.cancel'), style: 'cancel' },
+        { key: 'delete', label: t('you.deleteAccount'), style: 'destructive' },
+      ],
+    });
+    if (r !== 'delete') return;
+    setDeleting(true);
+    try {
+      await api.deleteAccount();
+      await signOut();
+    } catch {
+      await showAlert({ title: t('you.deleteAccountFailedTitle'), message: t('you.deleteAccountFailedBody') });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const syncMeta = sync.running
+    ? t('you.syncing')
+    : sync.error
+      ? sync.error === 'network'
+        ? t('you.syncFailedNetwork')
+        : t('you.syncFailed')
+      : sync.lastSuccessAt
+        ? t('you.syncLast', { when: formatDistanceToNow(sync.lastSuccessAt, { addSuffix: true }) })
+        : t('you.syncNever');
+  const syncValue = pendingCount > 0 ? t('you.syncPending', { count: pendingCount }) : undefined;
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <TopBar title={t('you.title')} />
@@ -195,81 +253,114 @@ export default function You() {
               disabled={uploading}
               accessibilityRole="button"
               accessibilityLabel={t('you.avatar.changePhoto')}
+              accessibilityState={{ disabled: uploading, busy: uploading }}
+              hitSlop={8}
             >
               <Avatar
                 initials={initialsFor(user?.name ?? '', user?.email ?? '')}
                 source={avatarSource}
                 style={styles.avatar}
               />
-              <View style={styles.avatarBadge} importantForAccessibility="no">
-                <Feather name="camera" size={12} color={colors.paper} />
-              </View>
+              {uploading ? (
+                <View style={styles.avatarOverlay} testID="avatar-uploading">
+                  <ActivityIndicator color={colors.paper} />
+                </View>
+              ) : (
+                <View style={styles.avatarBadge} importantForAccessibility="no">
+                  <Feather name="camera" size={12} color={colors.paper} />
+                </View>
+              )}
             </TouchableOpacity>
-            {uploading ? (
-              <Text variant="monoCaption" color={colors.lead} style={styles.uploading}>
-                {t('you.avatar.uploading')}
-              </Text>
-            ) : (
-              <>
-                <Text variant="title" style={styles.name}>{user?.name?.trim() || user?.email}</Text>
-                {user?.email ? (
-                  <Text variant="monoCaption" color={colors.lead}>{user.email}</Text>
-                ) : null}
-              </>
-            )}
+            <Text variant="title" style={styles.name}>{user?.name?.trim() || user?.email}</Text>
+            {user?.email ? (
+              <Text variant="monoCaption" color={colors.lead}>{user.email}</Text>
+            ) : null}
           </View>
 
-          <Text variant="monoLabel" color={colors.lead} style={styles.eyebrow}>
-            {t('you.settingsEyebrow')}
-          </Text>
-          <View style={styles.list}>
-            <NavRow
-              label={t('you.language')}
-              value={selectedLanguage ? selectedLanguage : t('you.languageAuto')}
-              onPress={() => setLanguageOpen(true)}
+          <ListSectionHeader title={t('you.dictionaryEyebrow')} />
+          <ListGroup>
+            <ListRow
+              label={t('you.dictionary')}
+              value={termCount == null ? undefined : t('you.dictionaryTerms', { count: termCount })}
+              hint={t('you.dictionaryHint')}
+              onPress={() => router.push('/settings/dictionary')}
+              testID="dictionary-row"
             />
-            <NavRow label={t('you.about')} onPress={() => router.push('/settings/about')} />
-          </View>
+          </ListGroup>
 
-          {abbreviations.length > 0 ? (
-            <>
-              <Text variant="monoLabel" color={colors.lead} style={styles.eyebrow}>
-                {t('you.abbreviationsEyebrow')}
-              </Text>
-              <View style={styles.list}>
-                {abbreviations.map((a) => (
-                  <View key={a.id} style={styles.row}>
-                    <Text style={styles.rowLabel}>{a.token}</Text>
-                    {a.source === PENDING_ABBREVIATION_SOURCE ? (
-                      <TouchableOpacity onPress={() => void handleConfirmAbbreviation(a.id)}>
-                        <Text style={styles.confirmLabel}>{t('you.abbreviations.confirm')}</Text>
-                      </TouchableOpacity>
+          <ListSectionHeader title={t('you.syncEyebrow')} />
+          <ListGroup>
+            <ListRow
+              label={t('you.sync')}
+              meta={syncMeta}
+              value={syncValue}
+              hint={t('you.syncHint')}
+              trailing="none"
+              right={
+                sync.running ? (
+                  <ActivityIndicator color={colors.lead} testID="sync-spinner" />
+                ) : (
+                  <View style={styles.rowRight}>
+                    {syncValue ? (
+                      <Text variant="monoBodyS" color={colors.lead}>
+                        {syncValue}
+                      </Text>
                     ) : null}
+                    <Feather
+                      name={sync.error ? 'alert-circle' : 'refresh-cw'}
+                      size={18}
+                      color={sync.error ? colors.brick : colors.lead}
+                      importantForAccessibility="no"
+                      accessibilityElementsHidden
+                    />
                   </View>
-                ))}
-              </View>
-            </>
-          ) : null}
+                )
+              }
+              disabled={sync.running}
+              onPress={() => void syncNowTapped()}
+              testID="sync-row"
+            />
+          </ListGroup>
 
-          <Text variant="monoLabel" color={colors.lead} style={styles.eyebrow}>
-            {t('you.accountEyebrow')}
-          </Text>
-          <View style={styles.list}>
-            <NavRow label={t('you.signOut')} destructive showChevron={false} onPress={confirmSignOut} />
-          </View>
+          <ListSectionHeader title={t('you.settingsEyebrow')} />
+          <ListGroup>
+            {showLanguageRow ? (
+              <ListRow
+                label={t('you.language')}
+                value={selectedLanguage ? selectedLanguage : t('you.languageAuto')}
+                hint={t('you.languageHint')}
+                onPress={() => setLanguageOpen(true)}
+              />
+            ) : null}
+            <ListRow
+              label={t('you.about')}
+              hint={t('you.aboutHint')}
+              onPress={() => router.push('/settings/about')}
+            />
+          </ListGroup>
+
+          <ListSectionHeader title={t('you.accountEyebrow')} />
+          <ListGroup>
+            <ListRow label={t('you.signOut')} destructive trailing="none" onPress={confirmSignOut} />
+            <ListRow
+              label={t('you.deleteAccount')}
+              destructive
+              trailing="none"
+              disabled={deleting}
+              onPress={() => void confirmDeleteAccount()}
+            />
+          </ListGroup>
 
           {__DEV__ ? (
             <>
-              <Text variant="monoLabel" color={colors.lead} style={styles.eyebrow}>
-                Devtools
-              </Text>
-              <View style={styles.list}>
-                <NavRow
+              <ListSectionHeader title="Devtools" />
+              <ListGroup>
+                <ListRow
                   label="Seed prior sessions"
-                  showChevron={false}
+                  trailing="none"
                   onPress={() => void handleSeedPriorSessions()}
                 />
-              </View>
+              </ListGroup>
             </>
           ) : null}
         </ContentContainer>
@@ -292,38 +383,18 @@ export default function You() {
   );
 }
 
-function NavRow({
-  label,
-  value,
-  onPress,
-  destructive,
-  showChevron = true,
-}: {
-  label: string;
-  value?: string;
-  onPress: () => void;
-  destructive?: boolean;
-  showChevron?: boolean;
-}) {
-  const labelColor = destructive ? colors.brick : colors.graphite;
-  return (
-    <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.7}>
-      <Text style={[styles.rowLabel, { color: labelColor }]}>{label}</Text>
-      <View style={styles.rowRight}>
-        {value ? <Text style={styles.rowValue}>{value}</Text> : null}
-        {showChevron ? (
-          <Feather name="chevron-right" size={18} color={destructive ? colors.brick : colors.lead} />
-        ) : null}
-      </View>
-    </TouchableOpacity>
-  );
-}
-
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.paper },
   content: { paddingTop: spacing.s5 },
   profile: { alignItems: 'center', gap: spacing.s1, marginBottom: spacing.s6 },
   avatar: { width: 64, height: 64, borderRadius: 32 },
+  avatarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 32,
+    backgroundColor: 'rgba(45, 31, 26, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarBadge: {
     position: 'absolute',
     right: -2,
@@ -338,28 +409,5 @@ const styles = StyleSheet.create({
     borderColor: colors.paper,
   },
   name: { ...typography.title, marginTop: spacing.s2 },
-  uploading: { marginTop: spacing.s3 },
-  eyebrow: {
-    letterSpacing: 0.3,
-    paddingHorizontal: spacing.s5,
-    marginBottom: spacing.s2,
-  },
-  list: {
-    borderTopWidth: 1,
-    borderTopColor: colors.ruleSoft,
-    marginBottom: spacing.s6,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.s5,
-    paddingVertical: spacing.s4,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.ruleSoft,
-  },
-  rowLabel: { ...typography.body },
-  confirmLabel: { ...typography.bodyEmphasis, color: colors.moss },
   rowRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.s2 },
-  rowValue: { ...typography.monoBodyS, color: colors.lead },
 });

@@ -285,7 +285,7 @@ func magicLinkRouter(t *testing.T, env *testutil.Env, sender email.Sender) http.
 }
 
 // Posting a magic-link request must invoke the configured Sender exactly once
-// with the requested email and a body containing the verify link.
+// with the requested email and a body containing the sign-in code.
 func TestMagicLink_SendsEmailViaSender(t *testing.T) {
 	env := newAuthEnv(t)
 	fake := &email.FakeSender{}
@@ -301,8 +301,14 @@ func TestMagicLink_SendsEmailViaSender(t *testing.T) {
 	msg := fake.Messages[0]
 	assert.Equal(t, addr, msg.To)
 	assert.NotEmpty(t, msg.Subject)
-	assert.Contains(t, msg.TextBody, "/api/auth/verify?token=", "text body should contain verify link")
-	assert.Contains(t, msg.HTMLBody, "/api/auth/verify?token=", "html body should contain verify link")
+	var resp struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	require.NotEmpty(t, resp.Token, "dev mode returns the code inline")
+	assert.Contains(t, msg.TextBody, resp.Token, "text body should contain the sign-in code")
+	assert.Contains(t, msg.HTMLBody, resp.Token, "html body should contain the sign-in code")
+	assert.NotContains(t, msg.HTMLBody, "<a ", "html body must not link to the POST-only verify endpoint")
 	assert.Contains(t, msg.TextBody, "15 minutes", "TTL should be interpolated from cfg.MagicLinkTTL")
 }
 

@@ -13,7 +13,7 @@ import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppAlertHost } from '@/components/AppAlert/AppAlertHost';
-import { AuthProvider } from '@/lib/auth';
+import { AuthProvider, useAuth } from '@/lib/auth';
 import '@/lib/i18n';
 
 // Fast Refresh re-runs this module after the splash has already hidden, at
@@ -30,19 +30,17 @@ export default function RootLayout() {
     'JetBrainsMono-Medium': require('../assets/fonts/JetBrainsMono-Medium.ttf'),
   });
 
-  useEffect(() => {
-    if (fontsLoaded) SplashScreen.hideAsync().catch(() => {});
-  }, [fontsLoaded]);
-
   if (!fontsLoaded) return null;
 
   return (
     <SafeAreaProvider>
       <AuthProvider>
+        <SplashGate />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="settings/about" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="settings/dictionary" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="exercise/[id]" options={{ animation: 'slide_from_right' }} />
         </Stack>
         <StatusBar style="dark" />
@@ -50,4 +48,18 @@ export default function RootLayout() {
       </AuthProvider>
     </SafeAreaProvider>
   );
+}
+
+/**
+ * Keeps the native splash up until the persisted session has been read, so
+ * the first frame is the right screen (tabs or sign-in) rather than a flash
+ * of one before the redirect to the other. Fonts are already loaded by the
+ * time this mounts.
+ */
+function SplashGate() {
+  const { loading } = useAuth();
+  useEffect(() => {
+    if (!loading) SplashScreen.hideAsync().catch(() => {});
+  }, [loading]);
+  return null;
 }

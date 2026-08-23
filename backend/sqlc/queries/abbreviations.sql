@@ -17,3 +17,6 @@ RETURNING *;
 -- tokens are passed canonical (upper-case); compare case-insensitively so
 -- rows stored before canonicalisation still match.
 SELECT * FROM abbreviations WHERE user_id = $1 AND UPPER(token) = ANY(sqlc.arg(tokens)::text[]);
+
+-- name: DeleteAbbreviationForUser :execrows
+DELETE FROM abbreviations WHERE id = $1 AND user_id = $2;
