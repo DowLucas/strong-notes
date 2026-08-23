@@ -1,0 +1,11 @@
+# EAS Build uploads the git repo root (monorepo). Only mobile/ is needed.
+backend/
+docs/
+.github/
+*.md
+# Never ship local state
+mobile/node_modules/
+mobile/.expo/
+mobile/ios/
+mobile/android/
+mobile/coverage/
