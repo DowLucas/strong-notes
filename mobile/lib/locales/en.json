@@ -10,6 +10,7 @@
     "error": "Error",
     "loading": "Loading…",
     "ok": "OK",
+    "retry": "Retry",
     "save": "Save",
     "saving": "Saving…"
   },
@@ -19,18 +20,24 @@
     "unauthorized": "Your session has expired. Please sign in again."
   },
   "exercise": {
+    "emptyRangeBody": "Try 6m or All.",
+    "emptyRangeTitle": "No sessions in the last {{range}}",
+    "hollowCaption": "Hollow dot / BW = bodyweight session (no weight logged)",
     "metricEst1rm": "Est. 1RM",
     "metricTopSet": "Top set",
     "metricVolume": "Volume",
-    "notFoundBody": "Nothing logged in this range.",
-    "notFoundTitle": "No data for this exercise",
     "pr": "PR",
-    "sessionsHeading": "Sessions"
+    "prLabel": "Personal record",
+    "sessionsHeading": "Sessions",
+    "singleSession": "1 session — log it again to see a trend",
+    "unknownBody": "No sessions have been logged for this exercise yet.",
+    "unknownTitle": "Unknown exercise"
   },
   "history": {
-    "emptyBody": "Sessions you log will show up here.",
+    "emptyBody": "Log a workout like “Bench 60kg 8x3” on the Log tab and it will show up here.",
     "emptyTitle": "No sessions logged yet",
-    "title": "History"
+    "title": "History",
+    "unconfirmed": "unconfirmed"
   },
   "home": {
     "greeting": "Hello, {{name}}.",
@@ -96,9 +103,19 @@
     "verifying": "Verifying…"
   },
   "stats": {
+    "chartSummary": "{{label}}, {{sessions}}, from {{first}} on {{firstDate}} to {{last}} on {{lastDate}}, best {{best}}",
+    "deltaCaption": "Change vs first session in range",
+    "deltaDown": "down {{value}} {{unit}}",
+    "deltaFlat": "no change",
+    "deltaUp": "up {{value}} {{unit}}",
     "emptyBody": "Log a workout and confirm the exercise to see it here.",
+    "emptyRangeBody": "Sessions you logged earlier are outside this range.",
+    "emptyRangeTitle": "Nothing in the last {{range}}",
     "emptyTitle": "No progress yet",
+    "firstSession": "1 session",
     "last": "last {{when}}",
+    "metricGroup": "Metric",
+    "openProgressHint": "Opens the progress chart for this exercise",
     "range": {
       "1m": "1m",
       "1y": "1y",
@@ -106,9 +123,19 @@
       "6m": "6m",
       "all": "All"
     },
+    "rangeGroup": "Time range",
+    "rangeLong": {
+      "1m": "month",
+      "1y": "year",
+      "3m": "3 months",
+      "6m": "6 months"
+    },
     "sessions_one": "{{count}} session",
     "sessions_other": "{{count}} sessions",
+    "showAllTime": "Show all time",
     "title": "Progress",
+    "unitKg": "kilograms",
+    "unitReps": "reps",
     "unnamedExercise": "Unnamed exercise"
   },
   "you": {
