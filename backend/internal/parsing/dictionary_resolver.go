@@ -64,8 +64,9 @@ func ResolveLineWithDictionary(ctx context.Context, q *db.Queries, userID, line 
 		return DictionaryResolution{}, err
 	}
 
-	var resolved []ResolvedToken
-	var unresolved []string
+	// Non-nil so the JSON is [] rather than null when nothing matched.
+	resolved := []ResolvedToken{}
+	unresolved := []string{}
 	for _, original := range rawTokens {
 		if numericToken.MatchString(original) {
 			continue
