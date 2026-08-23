@@ -4,10 +4,15 @@ import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth';
 import { colors, fontMono } from '@/lib/theme';
+import { useAutoSync } from '@/src/sync/useAutoSync';
 
 export default function TabsLayout() {
   const { session, loading } = useAuth();
   const { t } = useTranslation();
+  // Push unsynced sessions / refresh the abbreviation cache on launch and on
+  // every return to the foreground, whichever tab the user lands on. No-op
+  // until a session exists.
+  useAutoSync();
 
   // Still hydrating the persisted session — hold on a paper-coloured screen
   // to avoid a flash of the sign-in screen before redirecting.

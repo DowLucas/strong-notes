@@ -91,6 +91,21 @@ export function formatDate(d: Date | string): string {
   return date.toLocaleDateString(currentLocale());
 }
 
+/**
+ * Localized long date ("Sunday, 23 August 2026") for a YYYY-MM-DD string.
+ * Date-only strings parse as UTC midnight, so format in UTC to avoid the
+ * day shifting west of Greenwich.
+ */
+export function formatLongDate(isoDate: string): string {
+  return new Date(isoDate).toLocaleDateString(currentLocale(), {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 /** Localized time string (HH:MM). */
 export function formatTime(d: Date | string): string {
   const date = typeof d === 'string' ? new Date(d) : d;

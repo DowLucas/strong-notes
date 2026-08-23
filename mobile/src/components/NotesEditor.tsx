@@ -153,13 +153,13 @@ export function NotesEditor({
   const historyAnim = useRef(new Animated.Value(0)).current;
 
   // Tapping an exercise moves the caret onto its line — which surfaces that
-  // exercise's Progression hint. Unresolved exercises also open the confirm
-  // popover, since confirming is the primary action there.
+  // exercise's Progression hint — and opens the group's popover: confirm for
+  // an unresolved guess, read-only details for a confirmed exercise.
   function handleSpanTap(span: HighlightSpan) {
     caretRef.current = span.end;
     setCaret(span.end);
     setForcedSelection({ start: span.end, end: span.end });
-    if (span.status === 'needs-confirm') onSpanPress(span.entryId);
+    onSpanPress(span.entryId);
   }
 
   function handleSpanLayout(entryId: string, rect: SpanRect) {
@@ -452,8 +452,10 @@ const styles = StyleSheet.create({
   // Transparent text so the styled overlay shows through; the caret is still
   // visible via selectionColor.
   input: { flex: 1, color: 'transparent' },
+  // A confirmed exercise sits on a pastel green; an unconfirmed guess stays
+  // on bone with a dotted amber underline until the user confirms it.
   resolved: {
-    backgroundColor: colors.bone,
+    backgroundColor: colors.mossPale,
     textDecorationLine: 'underline',
     textDecorationColor: colors.moss,
     textDecorationStyle: 'solid',

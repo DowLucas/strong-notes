@@ -48,15 +48,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // The client reads the token lazily through this ref so it never goes stale
   // and never needs to be recreated.
   const tokenRef = useRef<string | null>(null);
-  const api = useMemo(
-    () => createClient(BASE_URL, async () => tokenRef.current),
-    [],
-  );
-
   const applySession = useCallback((next: Session | null) => {
     tokenRef.current = next?.token ?? null;
     setSession(next);
   }, []);
+
+  // An expired/revoked session: drop it locally so the router sends the user
+  // back to sign-in, instead of every request silently failing with 401.
+  // No server logout call — the token is already useless.
+  const handleUnauthorized = useCallback(() => {
+    if (!tokenRef.current) return; // already cleared by a concurrent 401
+    applySession(null);
+    void clearSession();
+  }, [applySession]);
+
+  // applySession/handleUnauthorized are stable, so the client is created once.
+  const api = useMemo(
+    () => createClient(BASE_URL, async () => tokenRef.current, { onUnauthorized: handleUnauthorized }),
+    [handleUnauthorized],
+  );
 
   useEffect(() => {
     let active = true;

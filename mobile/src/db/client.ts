@@ -28,6 +28,7 @@ async function migrate(db: SQLite.SQLiteDatabase) {
       id TEXT PRIMARY KEY,
       token TEXT NOT NULL,
       exercise_id TEXT,
+      exercise_name TEXT,
       modifier_type TEXT,
       modifier_value TEXT,
       source TEXT NOT NULL
@@ -39,6 +40,9 @@ async function migrate(db: SQLite.SQLiteDatabase) {
   // explicitly and ignore the "duplicate column" case.
   await addColumnIfMissing(db, 'set_entries', 'span_start', 'INTEGER');
   await addColumnIfMissing(db, 'set_entries', 'span_end', 'INTEGER');
+  // Exercise names joined the dictionary cache so the Log editor can title a
+  // dictionary-resolved group's popover offline.
+  await addColumnIfMissing(db, 'abbreviations_cache', 'exercise_name', 'TEXT');
 }
 
 async function addColumnIfMissing(

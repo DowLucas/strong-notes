@@ -8,7 +8,7 @@ describe('NotesEditor', () => {
     { start: 8, end: 25, status: 'resolved', entryId: 'e1' }, // "then RDL 40kg 8x3"
   ];
 
-  it('moves the caret onto the exercise line when a resolved span is tapped', async () => {
+  it('moves the caret onto the exercise line and opens the details popover when a resolved span is tapped', async () => {
     const onSpanPress = jest.fn();
     await render(
       <NotesEditor value={value} onChangeText={jest.fn()} spans={spans} onSpanPress={onSpanPress} placeholder="Start typing…" />,
@@ -16,10 +16,10 @@ describe('NotesEditor', () => {
 
     const span = screen.getByText('then RDL 40kg 8x3');
     await fireEvent.press(span);
-    // Caret jumps to the span end; the confirm popover is not opened for a
-    // resolved exercise.
+    // Caret jumps to the span end (surfacing the progression hint) AND the
+    // popover opens so a confirmed group's details can be reviewed.
     expect(screen.getByPlaceholderText('Start typing…').props.selection).toEqual({ start: 25, end: 25 });
-    expect(onSpanPress).not.toHaveBeenCalled();
+    expect(onSpanPress).toHaveBeenCalledWith('e1');
   });
 
   it('opens the confirm popover when a needs-confirm span is tapped', async () => {

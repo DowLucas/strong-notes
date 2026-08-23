@@ -1,7 +1,8 @@
 // app/(tabs)/index.tsx
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Modal, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Modal, Pressable, StyleSheet, Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { scanNote, type ScannedEntry } from '@/src/parsing/scanNote';
 import {
@@ -12,9 +13,14 @@ import {
 } from '@/src/db/sessionsRepo';
 import { getCachedAbbreviations } from '@/src/db/abbreviationsRepo';
 import { NotesEditor, type HighlightSpan } from '@/src/components/NotesEditor';
+import { Toast, useToast } from '@/components/Toast';
+import { upsertCachedAbbreviations } from '@/src/db/abbreviationsRepo';
+import type { Abbreviation } from '@/lib/api';
 import { EntryPopover } from '@/src/components/EntryPopover';
 import type { ExerciseHistory } from '@/lib/priorHistory';
-import { colors, spacing } from '@/lib/theme';
+import { colors, spacing, typography } from '@/lib/theme';
+import { formatLongDate } from '@/lib/i18n';
+import { useTranslation } from 'react-i18next';
 
 const ERROR_MESSAGE = "Couldn't load data. Pull down or reopen the app to retry.";
 const PERSIST_DELAY_MS = 300;
@@ -42,6 +48,7 @@ function toLocalSetEntry(e: ScannedEntry): LocalSetEntry {
 }
 
 export default function LogScreen() {
+  const { t } = useTranslation();
   const { api } = useAuth();
   const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
@@ -50,6 +57,12 @@ export default function LogScreen() {
   const [error, setError] = useState<string | null>(null);
   const [dictionaryTokens, setDictionaryTokens] = useState<string[]>([]);
   const [priorSessions, setPriorSessions] = useState<Record<string, ExerciseHistory[]>>({});
+
+  const toast = useToast();
+  // Edits made since the user last left writing mode (keyboard dismissed);
+  // only then is there something to confirm as saved.
+  const dirtyRef = useRef(false);
+  const textRef = useRef('');
 
   const entriesRef = useRef<ScannedEntry[]>([]);
   const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -106,6 +119,7 @@ export default function LogScreen() {
         const existing = await getLocalSession(todayDate());
         const noteText = existing?.notes ?? '';
         setText(noteText);
+        textRef.current = noteText;
         if (noteText) await runScan(noteText);
       } catch {
         setError(ERROR_MESSAGE);
@@ -115,6 +129,26 @@ export default function LogScreen() {
       if (persistTimer.current) clearTimeout(persistTimer.current);
       if (scanTimer.current) clearTimeout(scanTimer.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Leaving writing mode (keyboard dismissed): persist right away instead of
+  // waiting out the debounce, then confirm with a transient "Saved" toast —
+  // the mobile-friendly cue that the note is safe to walk away from.
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidHide', () => {
+      if (!dirtyRef.current) return;
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      persist(textRef.current, entriesRef.current).then(
+        () => {
+          dirtyRef.current = false;
+          setError(null);
+          toast.show(t('log.saved'));
+        },
+        () => setError(ERROR_MESSAGE),
+      );
+    });
+    return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -154,6 +188,8 @@ export default function LogScreen() {
 
   function handleChangeText(next: string) {
     setText(next);
+    textRef.current = next;
+    dirtyRef.current = true;
 
     if (persistTimer.current) clearTimeout(persistTimer.current);
     persistTimer.current = setTimeout(() => {
@@ -188,10 +224,31 @@ export default function LogScreen() {
       // (first.unresolvedToken) already bound below.
       const finalName = modifierValue ? `${modifierValue} ${first.exerciseName}` : first.exerciseName!;
       const exercise = await api.createExercise({ name: finalName, muscles: first.muscles ?? [] });
-      await api.createAbbreviation({ token: first.unresolvedToken!, exerciseId: exercise.id });
-      if (modifierValue && first.clarifyingQuestion) {
-        await api.createAbbreviation({ token: first.clarifyingQuestion.token, exerciseId: exercise.id });
+      // Every token that names the exercise is bound to it ("shoulder" AND
+      // "rotation"), otherwise the next scan finds the leftovers unresolved
+      // and asks the LLM — and the user — all over again. An equipment-only
+      // line ("bb 30kg") has no name token, so nothing gets aliased here.
+      const exerciseTokens = [...(first.exerciseTokens ?? (first.unresolvedToken ? [first.unresolvedToken] : []))];
+      if (modifierValue && first.clarifyingQuestion) exerciseTokens.push(first.clarifyingQuestion.token);
+      const created: Abbreviation[] = [];
+      for (const token of exerciseTokens) {
+        created.push(await api.createAbbreviation({ token, exerciseId: exercise.id }));
       }
+      // Equipment shorthand ("bb" → Barbell) is taught as a reusable
+      // equipment modifier, not tied to this exercise — so "bb bench" later
+      // resolves its equipment from the dictionary.
+      if (first.equipmentToken && first.equipment) {
+        created.push(
+          await api.createAbbreviation({
+            token: first.equipmentToken,
+            modifierType: 'equipment',
+            modifierValue: first.equipment,
+          }),
+        );
+      }
+      // Teach the local dictionary immediately so a reload/re-scan resolves
+      // this line offline instead of bouncing back to "needs confirm".
+      await upsertCachedAbbreviations(created.filter((a) => a?.token));
       const groupIds = new Set(groupEntries.map((e) => e.id));
       const updated = entriesRef.current.map((e) =>
         groupIds.has(e.id) ? { ...e, status: 'resolved' as const, exerciseId: exercise.id } : e,
@@ -199,8 +256,10 @@ export default function LogScreen() {
       applyEntries(updated);
       await persist(text, updated);
       setError(null);
-    } catch {
-      setError(ERROR_MESSAGE);
+    } catch (err) {
+      // A server-side rejection (e.g. validation) is actionable — show its
+      // message rather than the generic "couldn't load" banner.
+      setError(err instanceof ApiError ? `Couldn't save exercise: ${err.message}` : ERROR_MESSAGE);
     }
   }
 
@@ -219,6 +278,9 @@ export default function LogScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <Text style={styles.dateLabel} accessibilityRole="header">
+        {t('log.entryDate', { date: formatLongDate(todayDate()) })}
+      </Text>
       {error ? (
         <Text style={styles.error} accessibilityRole="alert" accessibilityLiveRegion="polite">
           {error}
@@ -251,12 +313,14 @@ export default function LogScreen() {
           </View>
         </Pressable>
       </Modal>
+      <Toast message={toast.message} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.paper },
+  dateLabel: { ...typography.monoLabel, color: colors.lead, paddingHorizontal: spacing.s4, paddingTop: spacing.s3, textTransform: 'uppercase' },
   error: { color: colors.brick, paddingHorizontal: spacing.s4, paddingTop: spacing.s2 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.2)', justifyContent: 'center', padding: spacing.s5 },
   popoverWrap: { alignSelf: 'stretch' },

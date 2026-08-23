@@ -78,9 +78,9 @@ describe('scanNote', () => {
         .mockRejectedValueOnce(Object.assign(new Error('llm resolve failed'), { status: 500 })),
     });
 
-    // First clause resolves; second clause's resolve() throws (500). The scan
+    // First line resolves; second line's resolve() throws (500). The scan
     // must not reject — it keeps the good entry and simply omits the failed one.
-    const entries = await scanNote(api, 'RDL 40kg 8x3, MysteryMove 20kg 5x5', []);
+    const entries = await scanNote(api, 'RDL 40kg 8x3\nMysteryMove 20kg 5x5', []);
 
     expect(entries).toHaveLength(1);
     expect(entries[0].exerciseId).toBe('ex-1');
@@ -147,6 +147,58 @@ describe('scanNote', () => {
     const entries = await scanNote(api, 'Bench 8x3 50kg', []);
     expect(entries).toHaveLength(1);
     expect(entries[0].isNameOnly).toBeFalsy();
+  });
+
+  it('spans a leading-weight single-group line from the weight through the reps', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'bb deadlifts', type: 'exercise', exerciseId: 'ex-dl' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const text = '30kg bb deadlifts 8x3';
+    const entries = await scanNote(api, text, []);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ weightKg: 30, reps: 8, sets: 3, exerciseId: 'ex-dl' });
+    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe('30kg bb deadlifts 8x3');
+    expect((api.resolveLine as jest.Mock).mock.calls[0][0]).toBe('bb deadlifts');
+  });
+
+  it('does not add a separate name span when a leading-weight group already covers the name', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'bb deadlifts', type: 'exercise', exerciseId: 'ex-dl' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const text = '30kg bb deadlifts 8x3 35kg 6x2';
+    const entries = await scanNote(api, text, []);
+    expect(entries).toHaveLength(2);
+    expect(entries.every((e) => !e.isNameOnly)).toBe(true);
+    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe('30kg bb deadlifts 8x3');
+    expect(text.slice(entries[1].spanStart!, entries[1].spanEnd!)).toBe('35kg 6x2');
+  });
+
+  it('turns a superset line into one entry per part, each resolved separately, with the outer xN as sets', async () => {
+    const resolveLine = jest.fn().mockImplementation(async (line: string) => ({
+      resolvedTokens: [],
+      unresolvedTokens: line.split(' '),
+      llmGuess: {
+        exerciseName: line === 'db OHSP' ? 'Dumbbell Overhead Press' : 'Shoulder Rotation',
+        muscles: ['SHOULDERS'],
+      },
+    }));
+    const api = fakeApi({ resolveLine });
+    const text = 'SS: (5kg db OHSP x8 + shoulder rotation x8) x3';
+    const entries = await scanNote(api, text, []);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({ weightKg: 5, reps: 8, sets: 3, exerciseName: 'Dumbbell Overhead Press' });
+    expect(entries[1]).toMatchObject({ weightKg: null, reps: 8, sets: 3, exerciseName: 'Shoulder Rotation' });
+    expect(entries[0].groupId).not.toBe(entries[1].groupId);
+    expect(text.slice(entries[0].spanStart!, entries[0].spanEnd!)).toBe('5kg db OHSP x8');
+    expect(text.slice(entries[1].spanStart!, entries[1].spanEnd!)).toBe('shoulder rotation x8');
+    expect(resolveLine.mock.calls.map((c) => c[0])).toEqual(['db OHSP', 'shoulder rotation']);
   });
 
   it('the name span shares groupId with its set-groups and is excluded from persistence', async () => {
@@ -275,6 +327,72 @@ describe('scanNote', () => {
       question: 'What does "As" mean?',
       alternatives: ['Assisted', 'As many reps as possible'],
     });
+  });
+
+  it('keeps superset parts with identical set tokens on distinct groupIds across a re-scan', async () => {
+    const resolveLine = jest.fn().mockImplementation(async (line: string) => ({
+      resolvedTokens: [],
+      unresolvedTokens: line.split(' '),
+      llmGuess: { exerciseName: line === 'a' ? 'Alpha' : 'Beta', muscles: ['CORE'] },
+    }));
+    const api = fakeApi({ resolveLine });
+    const text = '(a x8 + b x8) x3'; // both parts share the token `x8`
+    const first = await scanNote(api, text, []);
+    // Re-scan with the prior result as `previous` — the id/groupId reuse path
+    // used to key only on token text, merging both parts into one group.
+    const second = await scanNote(api, text, first);
+
+    for (const entries of [first, second]) {
+      expect(entries).toHaveLength(2);
+      expect(entries[0].exerciseName).toBe('Alpha');
+      expect(entries[1].exerciseName).toBe('Beta');
+      expect(entries[0].groupId).not.toBe(entries[1].groupId);
+    }
+    // Each part keeps its own stable id and groupId across the re-scan.
+    expect(second[0].id).toBe(first[0].id);
+    expect(second[1].id).toBe(first[1].id);
+    expect(second[0].groupId).toBe(first[0].groupId);
+    expect(second[1].groupId).toBe(first[1].groupId);
+  });
+
+  it('keeps different exercises with identical set tokens on distinct groupIds across a re-scan', async () => {
+    const resolveLine = jest.fn().mockImplementation(async (line: string) => ({
+      resolvedTokens: [
+        line === 'bench'
+          ? { token: 'bench', type: 'exercise', exerciseId: 'ex-bench', exerciseName: 'Bench Press' }
+          : { token: 'rows', type: 'exercise', exerciseId: 'ex-rows', exerciseName: 'Rows' },
+      ],
+      unresolvedTokens: [],
+    }));
+    const api = fakeApi({ resolveLine });
+    const text = 'bench 8x3\nrows 8x3';
+    const first = await scanNote(api, text, []);
+    const second = await scanNote(api, text, first);
+
+    for (const entries of [first, second]) {
+      expect(entries).toHaveLength(2);
+      expect(entries[0].exerciseName).toBe('Bench Press');
+      expect(entries[1].exerciseName).toBe('Rows');
+      expect(entries[0].groupId).not.toBe(entries[1].groupId);
+    }
+    expect(second[0].groupId).toBe(first[0].groupId);
+    expect(second[1].groupId).toBe(first[1].groupId);
+  });
+
+  it('does not hand a previous entry of a different exercise to a line that now names another one', async () => {
+    const resolveLine = jest.fn().mockImplementation(async (line: string) => ({
+      resolvedTokens: [{ token: line, type: 'exercise', exerciseId: `ex-${line}`, exerciseName: line }],
+      unresolvedTokens: [],
+    }));
+    const api = fakeApi({ resolveLine });
+    const first = await scanNote(api, 'bench 8x3', []);
+    // The user replaced the exercise name; the set token is unchanged.
+    const second = await scanNote(api, 'rows 8x3', first);
+
+    expect(second).toHaveLength(1);
+    expect(second[0].exerciseId).toBe('ex-rows');
+    expect(second[0].id).not.toBe(first[0].id);
+    expect(second[0].groupId).not.toBe(first[0].groupId);
   });
 
   it('gives every entry a unique id even with repeated set-group tokens across a re-scan', async () => {

@@ -49,6 +49,8 @@
       "insertTimes": "Insert times sign",
       "newLine": "New continuation line"
     },
+    "entryDate": "Log for {{date}}",
+    "saved": "Saved",
     "title": "Log",
     "viewProgress": "View progress ›"
   },

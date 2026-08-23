@@ -26,7 +26,7 @@ export function EntryPopover({
 }) {
   const [customValue, setCustomValue] = useState('');
   const first = entries[0];
-  const title = first.exerciseName ?? first.rawText;
+  const title = first.exerciseName || first.rawText;
   const needsConfirm = first.status === 'needs-confirm';
   const clarifyingQuestion = first.clarifyingQuestion;
   const { t } = useTranslation();

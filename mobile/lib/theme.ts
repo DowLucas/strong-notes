@@ -19,6 +19,9 @@ export const colors = {
   // so the semantic token is a darker olive that hits ~4.6:1. The brand
   // anchor `palmLeaf` keeps the pale shade for surfaces that aren't text.
   moss: '#586D2A',
+  // Pastel moss for surfaces (a confirmed exercise's highlight) — text on it
+  // stays graphite, so it only needs to read as "settled", not pass AA itself.
+  mossPale: '#DCEAC4',
   brick: '#8A2A2A',
   citrine: '#E0A040',
 

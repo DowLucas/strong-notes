@@ -1,8 +1,10 @@
 // __tests__/app/log.test.tsx
+import { Keyboard } from 'react-native';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
 import LogScreen from '../../app/(tabs)/index';
 import { useAuth } from '@/lib/auth';
 import { resetDbForTests } from '@/src/db/client';
+import { getCachedAbbreviations } from '@/src/db/abbreviationsRepo';
 import { getLocalSession, upsertLocalSession } from '@/src/db/sessionsRepo';
 import { scanNote } from '@/src/parsing/scanNote';
 
@@ -32,6 +34,37 @@ beforeEach(() => {
 });
 
 describe('LogScreen (notes-style)', () => {
+  it('flushes the pending save and shows a "Saved" toast when the keyboard is dismissed', async () => {
+    const listeners: Record<string, Array<() => void>> = {};
+    jest.spyOn(Keyboard, 'addListener').mockImplementation(((event: string, cb: () => void) => {
+      (listeners[event] ??= []).push(cb);
+      return { remove: jest.fn() };
+    }) as unknown as typeof Keyboard.addListener);
+
+    await render(<LogScreen />);
+    expect(screen.queryByText('Saved')).toBeNull();
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    await fireEvent.changeText(input, 'RDL 40kg 8x3');
+
+    // Leaving writing mode (keyboard hides) persists immediately — no need to
+    // wait out the debounce — and confirms it.
+    await act(async () => {
+      for (const cb of listeners['keyboardDidHide'] ?? []) cb();
+    });
+    await waitFor(() => expect(screen.getByText('Saved')).toBeTruthy());
+    const session = await getLocalSession(todayDate());
+    expect(session?.notes).toBe('RDL 40kg 8x3');
+  });
+
+  it("shows today's log date above the editor", async () => {
+    await render(<LogScreen />);
+    const today = new Date().toISOString().slice(0, 10);
+    const expected = new Date(today).toLocaleDateString(undefined, {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+    });
+    expect(screen.getByText(`Log for ${expected}`)).toBeTruthy();
+  });
+
   it('highlights a recognized set after the debounced scan and persists it', async () => {
     await render(<LogScreen />);
     const input = screen.getByPlaceholderText('Start typing your workout…');
@@ -152,6 +185,106 @@ describe('LogScreen (notes-style)', () => {
       const session = await getLocalSession(todayDate());
       expect(session?.entries).toHaveLength(1);
       expect(session?.entries[0].id).toBe('entry-b');
+    });
+  });
+
+  it('confirms a multi-word name: binds every name token to the exercise and caches them locally', async () => {
+    mockResolveLine.mockReset().mockResolvedValue({
+      resolvedTokens: [],
+      unresolvedTokens: ['shoulder', 'rotation'],
+      llmGuess: { exerciseName: 'Shoulder Rotation', muscles: ['SHOULDERS'] },
+    });
+    const createExercise = jest.fn().mockResolvedValue({ id: 'ex-sr', name: 'Shoulder Rotation', category: 'ISOLATION', createdAt: '' });
+    const createAbbreviation = jest.fn().mockImplementation(async (input: { token: string }) => ({
+      id: `abbr-${input.token}`, token: input.token.toUpperCase(), exerciseId: 'ex-sr', exerciseName: 'Shoulder Rotation', source: 'USER_ADDED', createdAt: '',
+    }));
+    (useAuth as jest.Mock).mockReturnValue({ api: { resolveLine: mockResolveLine, createExercise, createAbbreviation } });
+
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    await fireEvent.changeText(input, 'shoulder rotation x8');
+    await waitFor(() => expect(screen.getByText('shoulder rotation x8').props.pointerEvents).toBe('auto'), { timeout: 3000 });
+    await fireEvent.press(screen.getByText('shoulder rotation x8'));
+    await waitFor(() => expect(screen.getByText('Shoulder Rotation')).toBeTruthy());
+    await fireEvent.press(screen.getByText('Confirm exercise'));
+
+    await waitFor(() => {
+      expect(createAbbreviation).toHaveBeenCalledWith({ token: 'shoulder', exerciseId: 'ex-sr' });
+      expect(createAbbreviation).toHaveBeenCalledWith({ token: 'rotation', exerciseId: 'ex-sr' });
+    });
+    // The local dictionary cache learns them right away, so the next scan
+    // (e.g. after a reload) resolves offline without asking the LLM again.
+    await waitFor(async () => {
+      const cached = await getCachedAbbreviations();
+      expect(cached.map((a) => a.token).sort()).toEqual(['ROTATION', 'SHOULDER']);
+    });
+  });
+
+  it('confirms an equipment-shorthand line: names the exercise with equipment and saves the shorthand as a modifier', async () => {
+    mockResolveLine.mockReset().mockResolvedValue({
+      resolvedTokens: [],
+      unresolvedTokens: ['bb', 'deadlifts'],
+      llmGuess: {
+        exerciseName: 'Deadlift',
+        equipment: 'Barbell',
+        equipmentToken: 'bb',
+        muscles: ['HAMSTRINGS', 'GLUTES', 'BACK'],
+      },
+    });
+    const createExercise = jest.fn().mockResolvedValue({ id: 'ex-dl', name: 'Barbell Deadlift', category: 'COMPOUND', createdAt: '' });
+    const createAbbreviation = jest.fn().mockResolvedValue({});
+    (useAuth as jest.Mock).mockReturnValue({
+      api: { resolveLine: mockResolveLine, createExercise, createAbbreviation },
+    });
+
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    await fireEvent.changeText(input, 'bb deadlifts 30kg 8x3');
+
+    await waitFor(
+      () => expect(screen.getByText('bb deadlifts 30kg 8x3').props.pointerEvents).toBe('auto'),
+      { timeout: 3000 },
+    );
+    await fireEvent.press(screen.getByText('bb deadlifts 30kg 8x3'));
+    await waitFor(() => expect(screen.getByText('Barbell Deadlift')).toBeTruthy());
+
+    await fireEvent.press(screen.getByText('Confirm exercise'));
+
+    await waitFor(() => {
+      expect(createExercise).toHaveBeenCalledWith({ name: 'Barbell Deadlift', muscles: ['HAMSTRINGS', 'GLUTES', 'BACK'] });
+      expect(createAbbreviation).toHaveBeenCalledWith({ token: 'deadlifts', exerciseId: 'ex-dl' });
+      expect(createAbbreviation).toHaveBeenCalledWith({ token: 'bb', modifierType: 'equipment', modifierValue: 'Barbell' });
+      expect(createAbbreviation).not.toHaveBeenCalledWith(expect.objectContaining({ token: 'bb', exerciseId: 'ex-dl' }));
+    });
+  });
+
+  it('confirms an equipment-only line: saves the equipment modifier but binds no exercise alias', async () => {
+    // "bb 30kg 8x3": the only unresolved token is equipment shorthand, so
+    // there is no exercise-name token to bind — "bb" must NOT become an
+    // alias of the created exercise.
+    mockResolveLine.mockReset().mockResolvedValue({
+      resolvedTokens: [],
+      unresolvedTokens: ['bb'],
+      llmGuess: { exerciseName: 'Barbell Complex', equipment: 'Barbell', equipmentToken: 'bb', muscles: ['BACK'] },
+    });
+    const createExercise = jest.fn().mockResolvedValue({ id: 'ex-bc', name: 'Barbell Complex', category: 'COMPOUND', createdAt: '' });
+    const createAbbreviation = jest.fn().mockResolvedValue({});
+    (useAuth as jest.Mock).mockReturnValue({
+      api: { resolveLine: mockResolveLine, createExercise, createAbbreviation },
+    });
+
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    await fireEvent.changeText(input, 'bb 30kg 8x3');
+    await waitFor(() => expect(screen.getByText('bb 30kg 8x3').props.pointerEvents).toBe('auto'), { timeout: 3000 });
+    await fireEvent.press(screen.getByText('bb 30kg 8x3'));
+    await waitFor(() => expect(screen.getByText('Barbell Complex')).toBeTruthy());
+    await fireEvent.press(screen.getByText('Confirm exercise'));
+
+    await waitFor(() => {
+      expect(createExercise).toHaveBeenCalledWith({ name: 'Barbell Complex', muscles: ['BACK'] });
+      expect(createAbbreviation).toHaveBeenCalledTimes(1);
+      expect(createAbbreviation).toHaveBeenCalledWith({ token: 'bb', modifierType: 'equipment', modifierValue: 'Barbell' });
     });
   });
 

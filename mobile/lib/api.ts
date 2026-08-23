@@ -84,6 +84,8 @@ export interface ResolvedToken {
   token: string;
   type: 'exercise' | 'modifier';
   exerciseId?: string;
+  /** Human name of the exercise (only on `exercise` tokens). */
+  exerciseName?: string;
   modifierType?: string;
   modifierValue?: string;
 }
@@ -97,6 +99,8 @@ export interface ClarifyingQuestion {
 export interface LlmGuess {
   exerciseName: string;
   equipment?: string | null;
+  /** The raw input token the equipment was inferred from (e.g. "bb"). */
+  equipmentToken?: string | null;
   weightKg?: number | null;
   reps?: number | null;
   sets?: number | null;
@@ -126,6 +130,8 @@ export interface Abbreviation {
   id: string;
   token: string;
   exerciseId?: string;
+  /** Human name of the exercise the token maps to (absent for modifiers). */
+  exerciseName?: string;
   modifierType?: string;
   modifierValue?: string;
   source: string;
@@ -200,11 +206,21 @@ export interface ApiClient {
   avatarImageSource(user: User | null, token: string | null): { uri: string; headers?: Record<string, string> } | null;
 }
 
+export interface ClientOptions {
+  /**
+   * Called when a request that carried a bearer token is rejected with 401 —
+   * i.e. the session is expired or revoked. Unauthenticated 401s (a bad
+   * magic-link token, say) don't trigger it. The `ApiError` is still thrown
+   * to the caller afterwards.
+   */
+  onUnauthorized?: () => void;
+}
+
 /**
  * Create a client bound to one server. `getToken` supplies the bearer token
  * lazily on each request (or null for unauthenticated calls).
  */
-export function createClient(baseUrl: string, getToken: GetToken): ApiClient {
+export function createClient(baseUrl: string, getToken: GetToken, opts: ClientOptions = {}): ApiClient {
   const base = baseUrl.replace(/\/+$/, '');
 
   async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -217,6 +233,7 @@ export function createClient(baseUrl: string, getToken: GetToken): ApiClient {
     if (token) headers.Authorization = `Bearer ${token}`;
 
     const res = await fetch(`${base}${path}`, { ...options, headers });
+    if (res.status === 401 && token) opts.onUnauthorized?.();
     return parse<T>(res);
   }
 
