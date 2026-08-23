@@ -58,3 +58,9 @@ export async function getCachedAbbreviations(): Promise<Abbreviation[]> {
     createdAt: '', // not needed for offline dictionary matching; cache doesn't round-trip this field
   }));
 }
+
+/** Drop one cached row (after the server deleted it). */
+export async function removeCachedAbbreviation(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM abbreviations_cache WHERE id = ?`, [id]);
+}
