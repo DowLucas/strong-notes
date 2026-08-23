@@ -30,6 +30,7 @@
   "submit": {
     "production": {
       "ios": {
+        "ascAppId": "6804445910",
         "appleTeamId": "AV39AJYC85",
         "bundleIdentifier": "com.dowlucas.strongnotes"
       }
