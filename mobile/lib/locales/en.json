@@ -40,7 +40,8 @@
       "insertTimes": "Insert times sign",
       "newLine": "New continuation line"
     },
-    "title": "Log"
+    "title": "Log",
+    "viewProgress": "View progress ›"
   },
   "settings": {
     "about": {
@@ -85,7 +86,11 @@
       "all": "All"
     },
     "setGoal": "Set goal",
-    "title": "Stats"
+    "title": "Stats",
+    "unnamedExercise": "Unnamed exercise",
+    "sessions_one": "{{count}} session",
+    "sessions_other": "{{count}} sessions",
+    "last": "last {{when}}"
   },
   "you": {
     "abbreviations": {
@@ -115,5 +120,14 @@
     "signOutConfirmBody": "You'll need a new magic link to sign back in.",
     "signOutConfirmTitle": "Sign out?",
     "title": "Profile"
+  },
+  "exercise": {
+    "metricTopSet": "Top set",
+    "metricEst1rm": "Est. 1RM",
+    "metricVolume": "Volume",
+    "notFoundTitle": "No data for this exercise",
+    "notFoundBody": "Nothing logged in this range.",
+    "sessionsHeading": "Sessions",
+    "pr": "PR"
   }
 }
