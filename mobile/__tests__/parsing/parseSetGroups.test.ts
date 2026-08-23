@@ -413,3 +413,35 @@ describe('parseSetGroups — bare reps token (`x8`)', () => {
     expect(line.slice(r.groups[0].start, r.groups[0].end)).toBe('5kg db OHSP x8');
   });
 });
+
+describe('parseSetGroups — glued unit+reps and trailing names', () => {
+  it('splits a weight glued to the reps token (`30kg8x2`)', () => {
+    const line = 'romanian dl 30kg8x2';
+    const r = parseSetGroups(line);
+    expect(r.namePart).toBe('romanian dl');
+    expect(r.groups[0]).toMatchObject({ weightKg: 30, reps: 8, sets: 2 });
+    expect(line.slice(r.groups[0].start, r.groups[0].end)).toBe('30kg8x2');
+  });
+
+  it('takes the name from AFTER the numbers when nothing precedes them', () => {
+    const line = '30kg 8x2 romanian dl';
+    const r = parseSetGroups(line);
+    expect(r.namePart).toBe('romanian dl');
+    expect(line.slice(r.namePartStart, r.namePartStart + r.namePart.length)).toBe('romanian dl');
+    expect(r.groups).toHaveLength(1);
+    expect(r.groups[0]).toMatchObject({ weightKg: 30, reps: 8, sets: 2 });
+    // The single group's span runs through the trailing name.
+    expect(line.slice(r.groups[0].start, r.groups[0].end)).toBe('30kg 8x2 romanian dl');
+  });
+
+  it('handles glued weight+reps followed by the name', () => {
+    const r = parseSetGroups('30kg8x2 romanian dl');
+    expect(r.namePart).toBe('romanian dl');
+    expect(r.groups[0]).toMatchObject({ weightKg: 30, reps: 8, sets: 2 });
+  });
+
+  it('still treats a bare continuation line with no words as a continuation', () => {
+    expect(parseSetGroups('  ⁃ 50kg 8x3').namePart).toBe('');
+  });
+});
+

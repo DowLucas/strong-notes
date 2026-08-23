@@ -57,6 +57,7 @@ const X_JOIN_END = /(\d|kg|lb|bar)x$/i;
 const X_THEN_NUMBERISH = /^x\s*(\d|bar)/i;
 const NUMBERISH_START = /^(\d|bar)/i;
 const UNIT_START = /^(kg|lb)(?![a-z])/i;
+const UNIT_THEN_DIGIT = /\d(?:kg|lb)$/i;
 // The kept text ends with a comma-terminated integer list — a bare `8,` /
 // `8,8,`, or a packed `30kgx8,` — but NOT a reps×sets `8x3,` or a weight
 // `60kg,`, whose comma separates groups rather than list entries.
@@ -86,6 +87,12 @@ function normalize(line: string): Normalized {
   while (i < line.length) {
     const ch = line[i];
     if (!isGap(ch)) {
+      // `30kg8x2`: a digit glued straight onto a unit starts a new token —
+      // insert a boundary (mapped to the digit) so `30kg` and `8x2` split.
+      if (/\d/.test(ch) && UNIT_THEN_DIGIT.test(text)) {
+        text += ' ';
+        map.push(i);
+      }
       text += ch;
       map.push(i);
       i += 1;
@@ -368,7 +375,24 @@ function parseClean(rawTokens: Token[]): RawLine {
     repsTokens[0].token.start,
     ...weights.filter((w) => w !== leading).map((w) => w.token.start),
   );
-  return { nameStart, nameEnd: Math.max(nameStart, firstNumeric), groups };
+  const nameEnd = Math.max(nameStart, firstNumeric);
+  const hasLeadingName = tokens.some(
+    (t) => t.start >= nameStart && t.end <= nameEnd && !BULLET_TOKEN.test(t.text),
+  );
+  if (hasLeadingName) return { nameStart, nameEnd, groups };
+
+  // No name before the numbers (`30kg 8x2 romanian dl`): take the words
+  // after the last numeric token as the name, and extend the last group's
+  // span through it so the whole line highlights as one unit. A line with
+  // no words at all stays a continuation line (empty name).
+  const lastNumericEnd = Math.max(repsTokens[repsTokens.length - 1].token.end, ...weights.map((w) => w.token.end));
+  const trailing = tokens.filter((t) => t.start >= lastNumericEnd && !BULLET_TOKEN.test(t.text));
+  if (trailing.length === 0) return { nameStart, nameEnd, groups };
+  const trailStart = trailing[0].start;
+  const trailEnd = trailing[trailing.length - 1].end;
+  const last = groups[groups.length - 1];
+  last.end = Math.max(last.end, trailEnd);
+  return { nameStart: trailStart, nameEnd: trailEnd, groups };
 }
 
 // ---------------------------------------------------------------------------

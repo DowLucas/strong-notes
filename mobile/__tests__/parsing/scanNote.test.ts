@@ -201,6 +201,20 @@ describe('scanNote', () => {
     expect(resolveLine.mock.calls.map((c) => c[0])).toEqual(['db OHSP', 'shoulder rotation']);
   });
 
+  it('does not add a separate name span when a trailing name is already inside the last group span', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [{ token: 'romanian', type: 'exercise', exerciseId: 'ex-rdl', exerciseName: 'Romanian Deadlift' }],
+        unresolvedTokens: [],
+      }),
+    });
+    const text = '30kg 8x2 35kg 6x2 romanian dl';
+    const entries = await scanNote(api, text, []);
+    expect(entries.every((e) => !e.isNameOnly)).toBe(true);
+    expect(entries).toHaveLength(2);
+    expect(text.slice(entries[1].spanStart!, entries[1].spanEnd!)).toBe('35kg 6x2 romanian dl');
+  });
+
   it('the name span shares groupId with its set-groups and is excluded from persistence', async () => {
     const api = fakeApi({
       resolveLine: jest.fn().mockResolvedValue({

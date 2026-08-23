@@ -215,10 +215,12 @@ export async function scanNote(
           // multi-group line's name is shared across several sets, so it gets
           // its own separate highlight instead (this doesn't represent a real
           // logged set — see isNameOnly) — unless a leading weight already
-          // pulled the name inside the first group's span (`30kg dl 8x3 35kg 6x2`).
-          const nameInsideFirstGroup = groups[0].start <= namePartStart;
+          // pulled the name inside a group span (`30kg dl 8x3 35kg 6x2`, `30kg 8x2 dl`).
+          const nameInsideAGroup = groups.some(
+          (g) => g.start <= namePartStart && namePartStart + namePart.length <= g.end,
+        );
           const includeName = groups.length === 1 && namePart !== '';
-          if (groups.length > 1 && namePart !== '' && !nameInsideFirstGroup) {
+          if (groups.length > 1 && namePart !== '' && !nameInsideAGroup) {
             const nameReuse = claimReuseId(findPrev(namePart, name));
             result.push(
               buildNameOnlyEntry(
