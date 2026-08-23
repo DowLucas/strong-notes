@@ -106,6 +106,7 @@ func New(cfg *config.Config, pool *pgxpool.Pool, queries *db.Queries, jwtSvc *au
 		r.Get("/api/abbreviations", abbreviationsH.List)
 		r.Post("/api/abbreviations", abbreviationsH.Create)
 		r.Patch("/api/abbreviations/{id}/confirm", abbreviationsH.Confirm)
+		r.Delete("/api/abbreviations/{id}", abbreviationsH.Delete)
 
 		sessionsH := handler.NewSessionsHandler(pool, queries)
 		r.Get("/api/sessions", sessionsH.Get)

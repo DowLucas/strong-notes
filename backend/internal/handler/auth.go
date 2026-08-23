@@ -166,13 +166,13 @@ func (h *AuthHandler) MagicLink(w http.ResponseWriter, r *http.Request) {
 	if h.cfg.JobsEnabled && h.jobs != nil {
 		if _, err := h.jobs.Insert(r.Context(), jobs.SendMagicLinkEmailArgs{
 			Email:         addr,
-			Link:          link,
+			Code:          raw,
 			ExpiryMinutes: expiryMinutes,
 		}, nil); err != nil {
 			slog.Error("magic link enqueue failed", "email_hash", redactEmail(addr), "error", err)
 		}
 	} else {
-		textBody, htmlBody := email.MagicLinkBody(link, expiryMinutes)
+		textBody, htmlBody := email.MagicLinkBody(raw, expiryMinutes)
 		if err := h.sender.Send(r.Context(), email.Message{
 			To:       addr,
 			Subject:  email.MagicLinkSubject,

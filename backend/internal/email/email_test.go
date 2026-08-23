@@ -193,19 +193,31 @@ func TestSMTPSender_BuildsValidMessage_MultipartAlternative(t *testing.T) {
 	}
 }
 
-func TestMagicLinkTemplate_ContainsLinkAndExpiry(t *testing.T) {
-	link := "https://scaffold.example/api/auth/verify?token=abc123"
-	text, html := MagicLinkBody(link, 15)
-	if !strings.Contains(text, link) {
-		t.Errorf("text body missing link: %s", text)
+func TestMagicLinkTemplate_ContainsCodeAndExpiry(t *testing.T) {
+	code := "abc123<x>"
+	text, html := MagicLinkBody(code, 15)
+	if !strings.Contains(text, code) {
+		t.Errorf("text body missing code: %s", text)
 	}
 	if !strings.Contains(text, "15 minutes") {
 		t.Errorf("text body missing TTL: %s", text)
 	}
-	if !strings.Contains(html, link) {
-		t.Errorf("html body missing link: %s", html)
+	if !strings.Contains(text, "Enter this code in the app") {
+		t.Errorf("text body missing instruction: %s", text)
+	}
+	if !strings.Contains(html, "abc123&lt;x&gt;") {
+		t.Errorf("html body must HTML-escape the code: %s", html)
+	}
+	if !strings.Contains(html, "<pre") || !strings.Contains(html, "monospace") {
+		t.Errorf("html body must present the code in a monospace block: %s", html)
+	}
+	if strings.Contains(html, "<a ") {
+		t.Errorf("html body must not contain a link (verify is POST-only): %s", html)
 	}
 	if !strings.Contains(html, "15 minutes") {
 		t.Errorf("html body missing TTL: %s", html)
+	}
+	if MagicLinkSubject != "Your sign-in code for Strong Notes" {
+		t.Errorf("subject = %q", MagicLinkSubject)
 	}
 }

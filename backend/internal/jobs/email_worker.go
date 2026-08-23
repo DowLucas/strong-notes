@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/riverqueue/river"
 
@@ -14,9 +15,26 @@ import (
 // the email inline on the request path. This is the worked example of the
 // enqueue-from-handler → background-worker pattern.
 type SendMagicLinkEmailArgs struct {
-	Email         string `json:"email"`
-	Link          string `json:"link"`
+	Email string `json:"email"`
+	// Code is the raw one-time sign-in code shown in the email.
+	Code string `json:"code"`
+	// Link is the legacy verify URL (".../api/auth/verify?token=<code>").
+	// Jobs enqueued before Code existed carry only this; the worker
+	// recovers the code from its token query parameter.
+	Link          string `json:"link,omitempty"`
 	ExpiryMinutes int    `json:"expiry_minutes"`
+}
+
+// code returns the sign-in code, falling back to the token embedded in the
+// legacy Link field for jobs that pre-date the Code field.
+func (a SendMagicLinkEmailArgs) code() string {
+	if a.Code != "" {
+		return a.Code
+	}
+	if u, err := url.Parse(a.Link); err == nil {
+		return u.Query().Get("token")
+	}
+	return ""
 }
 
 func (SendMagicLinkEmailArgs) Kind() string { return "send_magic_link_email" }
@@ -37,7 +55,7 @@ func (w *SendMagicLinkEmailWorker) Work(ctx context.Context, job *river.Job[Send
 	if expiry < 1 {
 		expiry = 1
 	}
-	textBody, htmlBody := email.MagicLinkBody(args.Link, expiry)
+	textBody, htmlBody := email.MagicLinkBody(args.code(), expiry)
 	return w.Sender.Send(ctx, email.Message{
 		To:       args.Email,
 		Subject:  email.MagicLinkSubject,

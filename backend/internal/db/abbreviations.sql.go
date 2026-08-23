@@ -75,6 +75,23 @@ func (q *Queries) CreateAbbreviation(ctx context.Context, arg CreateAbbreviation
 	return i, err
 }
 
+const deleteAbbreviationForUser = `-- name: DeleteAbbreviationForUser :execrows
+DELETE FROM abbreviations WHERE id = $1 AND user_id = $2
+`
+
+type DeleteAbbreviationForUserParams struct {
+	ID     string `db:"id" json:"id"`
+	UserID string `db:"user_id" json:"user_id"`
+}
+
+func (q *Queries) DeleteAbbreviationForUser(ctx context.Context, arg DeleteAbbreviationForUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAbbreviationForUser, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const findAbbreviationsForTokens = `-- name: FindAbbreviationsForTokens :many
 SELECT id, user_id, token, exercise_id, modifier_type, modifier_value, source, created_at FROM abbreviations WHERE user_id = $1 AND UPPER(token) = ANY($2::text[])
 `
