@@ -25,7 +25,7 @@ import {
   suggestTokens,
   insertAtCaret,
   applyCompletion,
-  needsConfirmSpanOnLine,
+  spanOnLine,
   spansOnCaretLine,
 } from '../parsing/editorTokens';
 
@@ -53,17 +53,10 @@ export type HighlightSpan = {
 
 type SpanRect = { x: number; y: number; width: number; height: number };
 
-// How far the invisible tap target extends beyond a highlight's rendered
-// glyph bounds. React Native's Text doesn't support hitSlop, and nested Text
-// hit-testing is imprecise right at a word's edges — see the enlarged
-// Pressable rendered alongside each span in NotesEditor below.
-const HIT_PADDING = 8;
-
 function renderSegments(
   text: string,
   spans: HighlightSpan[],
-  onSpanTap: (span: HighlightSpan) => void,
-  onSpanLongPress: (span: HighlightSpan) => void,
+
   onSpanLayout: (entryId: string, rect: SpanRect) => void,
   historyIds: Set<string>,
 ): ReactNode[] {
@@ -92,8 +85,6 @@ function renderSegments(
           // before" cue, independent of where the caret is.
           historyIds.has(span.entryId) ? styles.historyTint : null,
         ]}
-        onPress={() => onSpanTap(span)}
-        onLongPress={() => onSpanLongPress(span)}
         onLayout={(e) => onSpanLayout(span.entryId, e.nativeEvent.layout)}
         pointerEvents="auto"
       >
@@ -154,34 +145,10 @@ export function NotesEditor({
   // Drives the prior-stats panel's fade/slide as the caret moves between lines.
   const historyAnim = useRef(new Animated.Value(0)).current;
 
-  // Tap = place the caret (so a highlighted word can be edited like any
-  // other text); long-press = open the group's popover (confirm / details).
-  // Confirming is also one tap away via the keyboard bar and the Confirm-all
-  // bar, so a plain tap never has to open anything.
-  //
-  // When the tap comes through the measured hit target we know where on the
-  // span the finger landed and map it to a character offset (linear over the
-  // span's width — close enough for a proportional font); the inline Text
-  // tap has no position, so the caret goes to the span end.
-  function handleSpanTap(span: HighlightSpan, locationX?: number) {
-    const rect = spanRects[span.entryId];
-    let caretPos = span.end;
-    if (locationX != null && rect && rect.width > 0) {
-      const frac = Math.min(1, Math.max(0, (locationX - HIT_PADDING) / rect.width));
-      caretPos = span.start + Math.round(frac * (span.end - span.start));
-    }
-    caretRef.current = caretPos;
-    setCaret(caretPos);
-    setForcedSelection({ start: caretPos, end: caretPos });
-  }
-
-  function handleSpanLongPress(span: HighlightSpan) {
-    caretRef.current = span.end;
-    setCaret(span.end);
-    setForcedSelection({ start: span.end, end: span.end });
-    onSpanPress(span.entryId);
-  }
-
+  // Highlights are touch-inert: the native TextInput underneath handles tap
+  // and long-press (iOS magnifier) cursor placement exactly like any text
+  // field. Confirm/details for the caret's line live in the keyboard bar
+  // (and the Confirm-all bar), so nothing needs to be tapped in the text.
   function handleSpanLayout(entryId: string, rect: SpanRect) {
     setSpanRects((prev) => ({ ...prev, [entryId]: rect }));
   }
@@ -234,7 +201,9 @@ export function NotesEditor({
 
   const currentWord = currentWordAt(value, caret).word;
   const suggestions = suggestTokens(dictionaryTokens, currentWord);
-  const confirmSpan = needsConfirmSpanOnLine(value, spans, caret);
+  const lineSpan = spanOnLine(value, spans, caret);
+  const confirmSpan = lineSpan?.status === 'needs-confirm' ? lineSpan : null;
+  const detailsSpan = lineSpan?.status === 'resolved' ? lineSpan : null;
   const confirmLabel = confirmSpan
     ? (confirmSpan.exerciseName ?? value.slice(confirmSpan.start, confirmSpan.end))
     : null;
@@ -294,6 +263,8 @@ export function NotesEditor({
     <KeyboardAccessoryBar
       confirmLabel={confirmLabel}
       onConfirm={confirmSpan ? () => onSpanPress(confirmSpan.entryId) : undefined}
+      detailsLabel={detailsSpan ? (detailsSpan.exerciseName ?? value.slice(detailsSpan.start, detailsSpan.end)) : null}
+      onDetails={detailsSpan ? () => onSpanPress(detailsSpan.entryId) : undefined}
       suggestions={suggestions}
       onComplete={handleComplete}
       grammar={grammar}
@@ -304,16 +275,9 @@ export function NotesEditor({
   // Layer order matters. The TextInput is rendered first (underneath) and is
   // the real editing surface, with transparent text so the styled overlay
   // shows through and its caret (selectionColor) peeks through the gaps. The
-  // styled overlay is rendered second (on top) inside a `box-none` View, so
-  // the overlay itself is never a touch target — only its children can be.
-  //
-  // Each PLAIN (non-highlighted) segment is explicitly pointerEvents="none":
-  // it's a touch-inert leaf (no children, no handler), so this only ever
-  // narrows what can capture a tap, never widens it. NOTE: this must not be
-  // set on the wrapping <Text> itself or on the highlighted spans — unlike a
-  // View, pointerEvents="none" on a Text disables its entire subtree, so
-  // applying it above the highlighted spans would silently break tapping
-  // them (caught by a regression test after an earlier, incorrect attempt).
+  // styled overlay sits on top inside a `box-none` View and the overlay Text
+  // itself is pointerEvents="none", so every touch — tap, long-press, drag —
+  // reaches the TextInput and behaves exactly like a native text field.
   return (
     <View style={styles.container}>
       <TextInput
@@ -345,42 +309,9 @@ export function NotesEditor({
         inputAccessoryViewID={Platform.OS === 'ios' ? ACCESSORY_ID : undefined}
       />
       <View style={styles.overlay} pointerEvents="box-none">
-        <Text style={styles.text}>
-          {renderSegments(value, spans, handleSpanTap, handleSpanLongPress, handleSpanLayout, historyIds)}
+        <Text style={styles.text} pointerEvents="none">
+          {renderSegments(value, spans, handleSpanLayout, historyIds)}
         </Text>
-        {spans.map((span) => {
-          const rect = spanRects[span.entryId];
-          if (!rect) return null;
-          // An invisible, enlarged tap target measured from the highlight's
-          // own rendered position — decoupled from the text flow (absolutely
-          // positioned, so it can never shift the pixel-aligned overlay/
-          // TextInput sync) and independent of the nested Text's own
-          // (imprecise, un-enlargeable) hit area.
-          return (
-            <Pressable
-              key={`hit-${span.entryId}`}
-              testID={`span-hit-target-${span.entryId}`}
-              onPress={(e) => handleSpanTap(span, e.nativeEvent?.locationX)}
-              onLongPress={() => handleSpanLongPress(span)}
-              delayLongPress={350}
-              accessibilityRole="button"
-              accessibilityLabel={value.slice(span.start, span.end)}
-              accessibilityHint={
-                span.status === 'resolved'
-                  ? 'tap to place the cursor, long-press to review this logged exercise'
-                  : 'tap to place the cursor, long-press to confirm this exercise'
-              }
-              accessibilityState={{ selected: span.status === 'resolved' }}
-              style={{
-                position: 'absolute',
-                left: rect.x - HIT_PADDING,
-                top: rect.y - HIT_PADDING,
-                width: rect.width + HIT_PADDING * 2,
-                height: rect.height + HIT_PADDING * 2,
-              }}
-            />
-          );
-        })}
         {/* Progression: a blue-tinted strip that fades/slides in below the
             exercise, showing last session + tap-to-fill recommended targets.
             box-none so the buttons receive taps but the panel body doesn't. */}

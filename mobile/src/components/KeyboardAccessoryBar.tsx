@@ -20,6 +20,8 @@ const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '.'];
 export function KeyboardAccessoryBar({
   confirmLabel,
   onConfirm,
+  detailsLabel,
+  onDetails,
   suggestions,
   onComplete,
   grammar,
@@ -27,6 +29,9 @@ export function KeyboardAccessoryBar({
 }: {
   confirmLabel?: string | null;
   onConfirm?: () => void;
+  /** Confirmed exercise on the caret's line — shows a "‹name› details" button. */
+  detailsLabel?: string | null;
+  onDetails?: () => void;
   suggestions: string[];
   onComplete: (token: string) => void;
   grammar: GrammarChip[];
@@ -44,6 +49,19 @@ export function KeyboardAccessoryBar({
           >
             <Text style={styles.islandText} numberOfLines={1}>
               ✓ Confirm {confirmLabel}
+            </Text>
+          </Pressable>
+        </View>
+      ) : detailsLabel ? (
+        <View style={styles.islandWrap} pointerEvents="box-none">
+          <Pressable
+            onPress={onDetails}
+            accessibilityRole="button"
+            accessibilityLabel={`${detailsLabel} details`}
+            style={[styles.island, styles.islandDetails]}
+          >
+            <Text style={[styles.islandText, styles.islandDetailsText]} numberOfLines={1}>
+              {detailsLabel} ›
             </Text>
           </Pressable>
         </View>
@@ -125,6 +143,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  islandDetails: { backgroundColor: colors.mossPale, borderWidth: 1, borderColor: colors.moss },
+  islandDetailsText: { color: colors.graphite },
   islandText: {
     ...typography.monoBody,
     color: colors.paper,

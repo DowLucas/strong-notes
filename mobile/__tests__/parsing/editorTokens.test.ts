@@ -4,6 +4,7 @@ import {
   insertAtCaret,
   applyCompletion,
   needsConfirmSpanOnLine,
+  spanOnLine,
   spansOnCaretLine,
 } from '@/src/parsing/editorTokens';
 
@@ -103,3 +104,18 @@ describe('spansOnCaretLine', () => {
     expect(spansOnCaretLine('rdl 40kgx8\n', [{ start: 0 }], 11)).toEqual([]);
   });
 });
+
+describe('spanOnLine', () => {
+  const text = 'RDL 40kg 8x3\nBench 60kg 8x3';
+  it('prefers a needs-confirm span on the caret line, else a resolved one, else null', () => {
+    const spans = [
+      { start: 0, status: 'resolved', entryId: 'a' },
+      { start: 13, status: 'resolved', entryId: 'b' },
+      { start: 19, status: 'needs-confirm', entryId: 'c' },
+    ];
+    expect(spanOnLine(text, spans, 2)?.entryId).toBe('a');
+    expect(spanOnLine(text, spans, 15)?.entryId).toBe('c');
+    expect(spanOnLine('plain', [], 0)).toBeNull();
+  });
+});
+

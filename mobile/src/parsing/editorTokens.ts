@@ -99,3 +99,21 @@ export function needsConfirmSpanOnLine<T extends { start: number; status: string
   }
   return null;
 }
+
+// The span the keyboard bar should act on for the caret's line: an
+// unconfirmed one first (confirming is the primary action), otherwise a
+// confirmed one (details), otherwise null.
+export function spanOnLine<T extends { start: number; status: string }>(
+  text: string,
+  spans: T[],
+  caret: number,
+): T | null {
+  const pending = needsConfirmSpanOnLine(text, spans, caret);
+  if (pending) return pending;
+  const caretLine = lineOf(text, caret);
+  for (const s of spans) {
+    if (s.status === 'resolved' && lineOf(text, s.start) === caretLine) return s;
+  }
+  return null;
+}
+
