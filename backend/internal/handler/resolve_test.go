@@ -257,7 +257,7 @@ func TestResolveLine_ClarifyingQuestionRoundTrips(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	respBody := w.Body.String()
-	if !strings.Contains(respBody, `"clarifyingQuestion":{"token":"As"`) {
+	if !strings.Contains(respBody, `"clarifyingQuestion":{"kind":"modifier","token":"As"`) {
 		t.Errorf("expected camelCase clarifyingQuestion object, got %s", respBody)
 	}
 	var resp struct {
