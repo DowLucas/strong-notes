@@ -12,7 +12,8 @@ jest.mock('@/lib/auth');
 jest.mock('@/src/parsing/scanNote', () => ({ scanNote: jest.fn() }));
 
 function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 const mockResolveLine = jest.fn();
@@ -43,7 +44,7 @@ describe('LogScreen (notes-style)', () => {
 
     await render(<LogScreen />);
     expect(screen.queryByText('Saved')).toBeNull();
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     await fireEvent.changeText(input, 'RDL 40kg 8x3');
 
     // Leaving writing mode (keyboard hides) persists immediately — no need to
@@ -56,18 +57,61 @@ describe('LogScreen (notes-style)', () => {
     expect(session?.notes).toBe('RDL 40kg 8x3');
   });
 
-  it("shows today's log date above the editor", async () => {
+  it("shows today's LOCAL date above the editor", async () => {
     await render(<LogScreen />);
-    const today = new Date().toISOString().slice(0, 10);
-    const expected = new Date(today).toLocaleDateString(undefined, {
-      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+    const now = new Date();
+    const expected = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toLocaleDateString(undefined, {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
     });
-    expect(screen.getByText(`Log for ${expected}`)).toBeTruthy();
+    expect(screen.getByText(`Today · ${expected}`)).toBeTruthy();
+  });
+
+  it('shows "Reading…" while a scan is in flight and clears it afterwards', async () => {
+    let resolveScan!: (v: unknown) => void;
+    (scanNote as jest.Mock).mockImplementationOnce(() => new Promise((res) => { resolveScan = res; }));
+    await render(<LogScreen />);
+    expect(screen.queryByText('Reading…')).toBeNull();
+    await fireEvent.changeText(screen.getByPlaceholderText('e.g. Bench 60kg 8x3'), 'RDL 40kg 8x3');
+    await waitFor(() => expect(screen.getByText('Reading…')).toBeTruthy(), { timeout: 3000 });
+    await act(async () => {
+      resolveScan([]);
+    });
+    await waitFor(() => expect(screen.queryByText('Reading…')).toBeNull());
+  });
+
+  it('shows an Offline status (and an honest strip) after a network failure, until a scan gets through', async () => {
+    mockResolveLine.mockReset().mockRejectedValue(new TypeError('Network request failed'));
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
+    await fireEvent.changeText(input, 'squats 60kg 8x3');
+    await waitFor(() => expect(screen.getByText('Offline — will read when online')).toBeTruthy(), { timeout: 3000 });
+    expect(screen.getByText(/Can't reach the server — your note is saved here/)).toBeTruthy();
+    // The editable text is untouched by the failure.
+    expect(screen.getByDisplayValue('squats 60kg 8x3')).toBeTruthy();
+
+    // Back online: the next successful scan clears both.
+    mockResolveLine.mockReset().mockResolvedValue({
+      resolvedTokens: [{ token: 'squats', type: 'exercise', exerciseId: 'ex-sq' }],
+      unresolvedTokens: [],
+    });
+    await fireEvent.changeText(input, 'squat 60kg 8x3');
+    await waitFor(() => expect(screen.queryByText('Offline — will read when online')).toBeNull(), { timeout: 3000 });
+    expect(screen.queryByText(/Can't reach the server/)).toBeNull();
+  });
+
+  it("shows a load error with a Retry button when today's note can't be read", async () => {
+    const repo = jest.requireActual('@/src/db/sessionsRepo');
+    const spy = jest.spyOn(repo, 'getLocalSession').mockRejectedValueOnce(new Error('db locked'));
+    await render(<LogScreen />);
+    expect(await screen.findByText("Couldn't load today's note.")).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByText("Couldn't load today's note.")).toBeNull());
+    spy.mockRestore();
   });
 
   it('highlights a recognized set after the debounced scan and persists it', async () => {
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
 
     await fireEvent.changeText(input, 'Warmup, then RDL 40kg 8x3');
 
@@ -114,7 +158,7 @@ describe('LogScreen (notes-style)', () => {
     });
 
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     await fireEvent.changeText(input, 'RDL 40kg 8x3');
 
     // The resolved span must carry exerciseId all the way to the editor for the
@@ -155,7 +199,7 @@ describe('LogScreen (notes-style)', () => {
       .mockImplementationOnce(() => pendingB);
 
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
 
     // Type A and let its scan fire (in flight, unresolved).
     await fireEvent.changeText(input, 'RDL 40kg 8x3');
@@ -215,7 +259,7 @@ describe('LogScreen (notes-style)', () => {
 
     await render(<LogScreen />);
     expect(screen.queryByText(/to confirm/)).toBeNull();
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     await fireEvent.changeText(input, 'bb squats 60kg 8x3\nbb rows 40kg 8x3\nAs Drip 8x3');
 
     await waitFor(() => expect(screen.getByText('3 exercises to confirm')).toBeTruthy(), { timeout: 3000 });
@@ -237,7 +281,7 @@ describe('LogScreen (notes-style)', () => {
 
   it('opens a pending group\'s sheet from its chip in the confirm bar', async () => {
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     mockResolveLine.mockReset().mockResolvedValue({
       resolvedTokens: [],
       unresolvedTokens: ['squats'],
@@ -251,7 +295,7 @@ describe('LogScreen (notes-style)', () => {
 
   it('hides the confirm bar to a pill for the current pending set, and re-expands from the pill', async () => {
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     mockResolveLine.mockReset().mockResolvedValue({
       resolvedTokens: [],
       unresolvedTokens: ['squats'],
@@ -278,7 +322,7 @@ describe('LogScreen (notes-style)', () => {
     (useAuth as jest.Mock).mockReturnValue({ api: { resolveLine: mockResolveLine, createExercise, createAbbreviation } });
 
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     await fireEvent.changeText(input, 'shoulder rotation x8');
     await waitFor(() => expect(screen.getByText('shoulder rotation x8').props.pointerEvents).toBe('auto'), { timeout: 3000 });
     await fireEvent.press(screen.getByLabelText('Confirm Shoulder Rotation'));
@@ -307,7 +351,7 @@ describe('LogScreen (notes-style)', () => {
     (useAuth as jest.Mock).mockReturnValue({ api: { resolveLine: mockResolveLine, createExercise, createAbbreviation } });
 
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     await fireEvent.changeText(input, 'inc bench 60kg 8x3');
     await waitFor(() => expect(screen.getByText('inc bench 60kg 8x3').props.pointerEvents).toBe('auto'), { timeout: 3000 });
     await fireEvent.press(screen.getByLabelText('Confirm Bench Press'));
@@ -340,7 +384,7 @@ describe('LogScreen (notes-style)', () => {
     });
 
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     await fireEvent.changeText(input, 'bb deadlifts 30kg 8x3');
 
     await waitFor(
@@ -374,7 +418,7 @@ describe('LogScreen (notes-style)', () => {
     });
 
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     await fireEvent.changeText(input, 'bb 30kg 8x3');
     await waitFor(() => expect(screen.getByText('bb 30kg 8x3').props.pointerEvents).toBe('auto'), { timeout: 3000 });
     await fireEvent.press(screen.getByLabelText('Confirm Barbell Complex'));
@@ -402,7 +446,7 @@ describe('LogScreen (notes-style)', () => {
     (useAuth as jest.Mock).mockReturnValue({ api: { resolveLine: mockResolveLine, createExercise, createAbbreviation } });
 
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     await fireEvent.changeText(input, 'pc 60kg 3x3');
     await waitFor(() => expect(screen.getByText('pc 60kg 3x3').props.pointerEvents).toBe('auto'), { timeout: 3000 });
     await fireEvent.press(screen.getByLabelText('Confirm Power Clean'));
@@ -437,7 +481,7 @@ describe('LogScreen (notes-style)', () => {
     });
 
     await render(<LogScreen />);
-    const input = screen.getByPlaceholderText('Start typing your workout…');
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
     await fireEvent.changeText(input, 'As Drip 8x3 50kg');
 
     // This line's single-group highlight spans the whole text, so a plain

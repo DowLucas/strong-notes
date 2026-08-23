@@ -4,20 +4,22 @@ import {
   Text,
   TextInput,
   Pressable,
+  ScrollView,
   Keyboard,
   Platform,
   Animated,
   InputAccessoryView,
   StyleSheet,
   type NativeSyntheticEvent,
+  type NativeScrollEvent,
   type TextInputSelectionChangeEventData,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import { colors, spacing, fonts, fontSize } from '@/lib/theme';
+import { colors, radii, spacing, fonts, fontSize, typography } from '@/lib/theme';
 import { formatPriorHistory, type ExerciseHistory } from '@/lib/priorHistory';
-import { recommendProgression } from '@/lib/progression';
+import { recommendProgression, type ProgressionTarget } from '@/lib/progression';
 import { formatDate } from '@/lib/i18n';
 import { KeyboardAccessoryBar, type GrammarChip } from './KeyboardAccessoryBar';
 import {
@@ -38,6 +40,17 @@ const ACCESSORY_ID = 'workout-editor-accessory';
 // inline <Text> spans on iOS, which would otherwise leave the strip unpositioned.
 const LINE_HEIGHT = 26;
 const TOP_PADDING = spacing.s4;
+// Breathing room kept below the caret line when auto-scrolling it into view.
+const CARET_SCROLL_MARGIN = LINE_HEIGHT * 2;
+
+// Sample note shown (and insertable) while the editor is empty — one line per
+// notation the parser understands: equipment prefix + packed sets, a plain
+// "weight reps×sets" line, and a ⁃ continuation line for the same exercise.
+export const EXAMPLE_LINES = ['BB RDL 40kgx8 50kgx8x4', 'Bench 60kg 8x3', '  ⁃ 65kg 6x2'] as const;
+const EXAMPLE_TEXT = EXAMPLE_LINES.join('\n');
+
+// Blue tint for exercises with prior-session history (also the legend swatch).
+const HISTORY_TINT = '#DCE8FA';
 
 export type HighlightSpan = {
   start: number;
@@ -56,9 +69,9 @@ type SpanRect = { x: number; y: number; width: number; height: number };
 function renderSegments(
   text: string,
   spans: HighlightSpan[],
-
   onSpanLayout: (entryId: string, rect: SpanRect) => void,
   historyIds: Set<string>,
+  spanLabel: (text: string, status: HighlightSpan['status']) => string,
 ): ReactNode[] {
   const ordered = [...spans].sort((a, b) => a.start - b.start);
   const nodes: ReactNode[] = [];
@@ -75,6 +88,7 @@ function renderSegments(
         </Text>,
       );
     }
+    const spanText = text.slice(span.start, span.end);
     nodes.push(
       <Text
         key={`${span.entryId}-${span.start}`}
@@ -87,8 +101,9 @@ function renderSegments(
         ]}
         onLayout={(e) => onSpanLayout(span.entryId, e.nativeEvent.layout)}
         pointerEvents="auto"
+        accessibilityLabel={spanLabel(spanText, span.status)}
       >
-        {text.slice(span.start, span.end)}
+        {spanText}
       </Text>,
     );
     cursor = span.end;
@@ -127,7 +142,9 @@ export function NotesEditor({
   const { t } = useTranslation();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [accessoryHeight, setAccessoryHeight] = useState(0);
   const [spanRects, setSpanRects] = useState<Record<string, SpanRect>>({});
+  const [exampleDismissed, setExampleDismissed] = useState(false);
   // The caret offset drives autocomplete + the inline confirm chip. We track it
   // in state (reactive), but only *control* the native selection transiently —
   // right after a programmatic insert (forcedSelection) — so ordinary typing
@@ -144,6 +161,10 @@ export function NotesEditor({
   valueRef.current = value;
   // Drives the prior-stats panel's fade/slide as the caret moves between lines.
   const historyAnim = useRef(new Animated.Value(0)).current;
+  // Scroll bookkeeping for keeping the caret line above the keyboard.
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(0);
+  const viewportHeightRef = useRef(0);
 
   // Highlights are touch-inert: the native TextInput underneath handles tap
   // and long-press (iOS magnifier) cursor placement exactly like any text
@@ -224,8 +245,24 @@ export function NotesEditor({
   // when you move below the exercise. Computed from the line index rather than
   // a measured rect — see LINE_HEIGHT.
   const caretLineIndex = value.slice(0, caret).split('\n').length - 1;
-  const historyTop = TOP_PADDING + (caretLineIndex + 1) * LINE_HEIGHT;
+  const caretLineBottom = TOP_PADDING + (caretLineIndex + 1) * LINE_HEIGHT;
+  const historyTop = caretLineBottom;
   const historyKey = historySpan && activeHistory ? historySpan.entryId : null;
+  // Space reserved under the text so the last lines clear the keyboard and
+  // the accessory bar docked above it.
+  const bottomInset = keyboardHeight + accessoryHeight;
+
+  // Keep the caret's line in view while typing near the bottom: when it would
+  // sit under the keyboard/accessory bar, scroll just enough to reveal it.
+  useEffect(() => {
+    const viewport = viewportHeightRef.current;
+    if (!keyboardVisible || viewport === 0) return;
+    const visibleBottom = scrollOffsetRef.current + viewport - bottomInset;
+    const target = caretLineBottom + CARET_SCROLL_MARGIN;
+    if (target > visibleBottom) {
+      scrollRef.current?.scrollTo({ y: target - (viewport - bottomInset), animated: true });
+    }
+  }, [caretLineBottom, bottomInset, keyboardVisible, value.length]);
 
   // Insert a recommended set token at the end of its exercise's line, e.g.
   // `rdl` → `rdl 42.5kgx8`. The line is the one the Progression hint is for.
@@ -252,25 +289,58 @@ export function NotesEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyKey, historyTop]);
 
+  const spanLabel = (text: string, status: HighlightSpan['status']) =>
+    status === 'resolved'
+      ? t('log.editor.spanConfirmed', { text })
+      : t('log.editor.spanNeedsConfirm', { text });
+
+  // Spoken form of a progression target: "42.5 kilograms by 8, plus 2.5 kilograms".
+  function recA11yLabel(r: ProgressionTarget): string {
+    const kgBy = r.display.match(/^([\d.]+)kg×(\d+)$/);
+    const reps = r.display.match(/^(\d+) reps$/);
+    const target = kgBy
+      ? t('log.editor.recKgBy', { kg: kgBy[1], reps: kgBy[2] })
+      : reps
+        ? t('log.editor.recReps', { count: Number(reps[1]) })
+        : r.display;
+    const plusKg = r.label.match(/^\+([\d.]+)kg$/);
+    const plusReps = r.label.match(/^\+(\d+) reps$/);
+    const action =
+      r.kind === 'repeat'
+        ? t('log.editor.recRepeat')
+        : plusKg
+          ? t('log.editor.recPlusKg', { kg: plusKg[1] })
+          : plusReps
+            ? t('log.editor.recPlusReps', { count: Number(plusReps[1]) })
+            : r.label;
+    return `${target}, ${action}`;
+  }
+
+  // Order mirrors how a set is typed: weight unit, times sign, next line for
+  // the same exercise, then the rarer bar-load token.
   const grammar: GrammarChip[] = [
-    { label: '×', insert: 'x', a11yLabel: t('log.accessory.insertTimes') },
     { label: 'kg', insert: 'kg', a11yLabel: t('log.accessory.insertKg') },
+    { label: '×', insert: 'x', a11yLabel: t('log.accessory.insertTimes') },
+    { label: t('log.accessory.sameExercise'), insert: '\n  ⁃ ', a11yLabel: t('log.accessory.newLine') },
     { label: 'bar', insert: 'bar', a11yLabel: t('log.accessory.insertBar') },
-    { label: '⁃ line', insert: '\n  ⁃ ', a11yLabel: t('log.accessory.newLine') },
   ];
 
   const accessory = (
-    <KeyboardAccessoryBar
-      confirmLabel={confirmLabel}
-      onConfirm={confirmSpan ? () => onSpanPress(confirmSpan.entryId) : undefined}
-      detailsLabel={detailsSpan ? (detailsSpan.exerciseName ?? value.slice(detailsSpan.start, detailsSpan.end)) : null}
-      onDetails={detailsSpan ? () => onSpanPress(detailsSpan.entryId) : undefined}
-      suggestions={suggestions}
-      onComplete={handleComplete}
-      grammar={grammar}
-      onInsert={handleInsert}
-    />
+    <View onLayout={(e) => setAccessoryHeight(e.nativeEvent.layout.height)}>
+      <KeyboardAccessoryBar
+        confirmLabel={confirmLabel}
+        onConfirm={confirmSpan ? () => onSpanPress(confirmSpan.entryId) : undefined}
+        detailsLabel={detailsSpan ? (detailsSpan.exerciseName ?? value.slice(detailsSpan.start, detailsSpan.end)) : null}
+        onDetails={detailsSpan ? () => onSpanPress(detailsSpan.entryId) : undefined}
+        suggestions={suggestions}
+        onComplete={handleComplete}
+        grammar={grammar}
+        onInsert={handleInsert}
+      />
+    </View>
   );
+
+  const showExample = value === '' && !exampleDismissed;
 
   // Layer order matters. The TextInput is rendered first (underneath) and is
   // the real editing surface, with transparent text so the styled overlay
@@ -278,102 +348,129 @@ export function NotesEditor({
   // styled overlay sits on top inside a `box-none` View and the overlay Text
   // itself is pointerEvents="none", so every touch — tap, long-press, drag —
   // reaches the TextInput and behaves exactly like a native text field.
+  // Both layers live in the same scrolling container so they stay aligned.
   return (
     <View style={styles.container}>
-      <TextInput
-        style={[styles.text, styles.input]}
-        value={value}
-        onChangeText={onChangeText}
-        onSelectionChange={handleSelectionChange}
-        selection={forcedSelection}
-        placeholder={placeholder}
-        placeholderTextColor={colors.lead}
-        selectionColor={colors.graphite}
-        multiline
-        textAlignVertical="top"
-        scrollEnabled={false}
-        // Shorthand fidelity: the parser reads tokens exactly, so the keyboard
-        // must not silently rewrite them. Autocorrect/spellcheck/smart
-        // punctuation/autofill/auto-capitalization would each corrupt tokens
-        // like `RDL`, `BB`, `barx12`, or `40kgx8` against transparent text the
-        // user can't see being changed. Suggestions come from our own accessory
-        // bar instead.
-        autoCorrect={false}
-        spellCheck={false}
-        autoComplete="off"
-        autoCapitalize="none"
-        keyboardType="default"
-        importantForAutofill="no"
-        textContentType="none"
-        smartInsertDelete={false}
-        inputAccessoryViewID={Platform.OS === 'ios' ? ACCESSORY_ID : undefined}
-      />
-      <View style={styles.overlay} pointerEvents="box-none">
-        <Text style={styles.text} pointerEvents="none">
-          {renderSegments(value, spans, handleSpanLayout, historyIds)}
-        </Text>
-        {/* Progression: a blue-tinted strip that fades/slides in below the
-            exercise, showing last session + tap-to-fill recommended targets.
-            box-none so the buttons receive taps but the panel body doesn't. */}
-        {activeHistory ? (
-          <Animated.View
-            pointerEvents="box-none"
-            style={[
-              styles.priorPanel,
-              {
-                top: historyTop,
-                opacity: historyAnim,
-                transform: [
-                  {
-                    translateY: historyAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [-6, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <Text style={styles.priorEyebrow}>PROGRESSION</Text>
-            <Text style={styles.priorText} numberOfLines={1}>
-              {formatPriorHistory(activeHistory, formatDate)}
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomInset }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
+        onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+          scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={32}
+        onLayout={(e) => {
+          viewportHeightRef.current = e.nativeEvent.layout.height;
+        }}
+      >
+        <View style={[styles.editorArea, !showExample && styles.editorAreaGrow]}>
+          <TextInput
+            style={[styles.text, styles.input]}
+            value={value}
+            onChangeText={onChangeText}
+            onSelectionChange={handleSelectionChange}
+            selection={forcedSelection}
+            placeholder={placeholder}
+            placeholderTextColor={colors.lead}
+            selectionColor={colors.graphite}
+            multiline
+            textAlignVertical="top"
+            scrollEnabled={false}
+            // Shorthand fidelity: the parser reads tokens exactly, so the keyboard
+            // must not silently rewrite them. Autocorrect/spellcheck/smart
+            // punctuation/autofill/auto-capitalization would each corrupt tokens
+            // like `RDL`, `BB`, `barx12`, or `40kgx8` against transparent text the
+            // user can't see being changed. Suggestions come from our own accessory
+            // bar instead.
+            autoCorrect={false}
+            spellCheck={false}
+            autoComplete="off"
+            autoCapitalize="none"
+            keyboardType="default"
+            importantForAutofill="no"
+            textContentType="none"
+            smartInsertDelete={false}
+            inputAccessoryViewID={Platform.OS === 'ios' ? ACCESSORY_ID : undefined}
+          />
+          <View style={styles.overlay} pointerEvents="box-none">
+            <Text style={styles.text} pointerEvents="none">
+              {renderSegments(value, spans, handleSpanLayout, historyIds, spanLabel)}
             </Text>
-            {recommendations.length > 0 ? (
-              <View style={styles.recRow}>
-                {recommendations.map((r, i) => {
-                  const primary = i === 0;
-                  return (
-                    <Pressable
-                      key={r.kind}
-                      onPress={() => handleRecommend(r.token)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${r.label}, ${r.display}`}
-                      style={[styles.recBtn, primary && styles.recBtnPrimary]}
-                    >
-                      <Text style={[styles.recBtnValue, primary && styles.recBtnValuePrimary]}>
-                        {r.display}
-                      </Text>
-                      <Text style={[styles.recBtnLabel, primary && styles.recBtnLabelPrimary]}>
-                        {r.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+            {/* Progression: a blue-tinted strip that fades/slides in below the
+                exercise, showing last session + tap-to-fill recommended targets.
+                box-none so the buttons receive taps but the panel body doesn't. */}
+            {activeHistory ? (
+              <Animated.View
+                pointerEvents="box-none"
+                style={[
+                  styles.priorPanel,
+                  {
+                    top: historyTop,
+                    opacity: historyAnim,
+                    transform: [
+                      {
+                        translateY: historyAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [-6, 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <Text style={styles.priorEyebrow}>{t('log.editor.progression')}</Text>
+                <Text style={styles.priorText} numberOfLines={1}>
+                  {formatPriorHistory(activeHistory, formatDate)}
+                </Text>
+                {recommendations.length > 0 ? (
+                  <View style={styles.recRow}>
+                    {recommendations.map((r, i) => {
+                      const primary = i === 0;
+                      return (
+                        <Pressable
+                          key={r.kind}
+                          onPress={() => handleRecommend(r.token)}
+                          accessibilityRole="button"
+                          accessibilityLabel={recA11yLabel(r)}
+                          accessibilityHint={t('log.editor.recHint')}
+                          style={({ pressed }) => [
+                            styles.recBtn,
+                            primary && styles.recBtnPrimary,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <Text style={[styles.recBtnValue, primary && styles.recBtnValuePrimary]}>
+                            {r.display}
+                          </Text>
+                          <Text style={[styles.recBtnLabel, primary && styles.recBtnLabelPrimary]}>
+                            {r.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </Animated.View>
             ) : null}
-          </Animated.View>
+          </View>
+        </View>
+        {showExample ? (
+          <ExampleBlock onUse={() => replaceText(EXAMPLE_TEXT, EXAMPLE_TEXT.length)} onDismiss={() => setExampleDismissed(true)} />
         ) : null}
-      </View>
+      </ScrollView>
       {keyboardVisible ? (
         <View style={styles.toolbar} pointerEvents="box-none">
           <Pressable
             onPress={() => Keyboard.dismiss()}
-            accessibilityLabel="Done"
+            accessibilityLabel={t('common.done')}
+            accessibilityHint={t('log.editor.doneHint')}
             accessibilityRole="button"
-            style={styles.doneButton}
+            style={({ pressed }) => [styles.doneButton, pressed && styles.pressed]}
           >
             <BlurView intensity={40} tint="light" style={styles.doneBlur}>
-              <Feather name="check" size={26} color={colors.graphite} />
+              <Feather name="chevrons-down" size={26} color={colors.graphite} />
             </BlurView>
           </Pressable>
         </View>
@@ -392,10 +489,65 @@ export function NotesEditor({
   );
 }
 
+// Onboarding for an empty note: what to type, what the highlight colours
+// mean, and a one-tap way to try it with the sample.
+function ExampleBlock({ onUse, onDismiss }: { onUse: () => void; onDismiss: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <View style={styles.example}>
+      <View style={styles.exampleHeader}>
+        <View style={styles.exampleLines}>
+          {EXAMPLE_LINES.map((line) => (
+            <Text key={line} style={styles.exampleLine}>
+              {line}
+            </Text>
+          ))}
+        </View>
+        <Pressable
+          onPress={onDismiss}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t('log.editor.dismissExample')}
+          style={({ pressed }) => [styles.exampleDismiss, pressed && styles.pressed]}
+        >
+          <Feather name="x" size={20} color={colors.lead} />
+        </Pressable>
+      </View>
+      <Text style={styles.exampleCaption}>{t('log.editor.exampleCaption')}</Text>
+      <Pressable
+        onPress={onUse}
+        accessibilityRole="button"
+        accessibilityLabel={t('log.editor.useExample')}
+        style={({ pressed }) => [styles.exampleButton, pressed && styles.pressed]}
+      >
+        <Text style={styles.exampleButtonLabel}>{t('log.editor.useExample')}</Text>
+      </Pressable>
+      <View style={styles.legend}>
+        <LegendRow swatch={styles.needsConfirm} label={t('log.editor.legendNeedsConfirm')} />
+        <LegendRow swatch={styles.resolved} label={t('log.editor.legendConfirmed')} />
+        <LegendRow swatch={[styles.resolved, styles.historyTint]} label={t('log.editor.legendHistory')} />
+      </View>
+    </View>
+  );
+}
+
+function LegendRow({ swatch, label }: { swatch: object; label: string }) {
+  return (
+    <View style={styles.legendRow}>
+      <View style={[styles.legendSwatch, swatch]} />
+      <Text style={styles.legendLabel}>{label}</Text>
+    </View>
+  );
+}
+
 // Both layers MUST share fontFamily, fontSize, lineHeight, and padding so the
 // styled overlay stays pixel-aligned with the transparent editing layer.
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  scroll: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
+  editorArea: { position: 'relative' },
+  editorAreaGrow: { flexGrow: 1 },
   text: {
     fontFamily: fonts.regular,
     fontSize: fontSize.body,
@@ -405,10 +557,11 @@ const styles = StyleSheet.create({
   },
   overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   // Transparent text so the styled overlay shows through; the caret is still
-  // visible via selectionColor.
-  input: { flex: 1, color: 'transparent' },
-  // A confirmed exercise sits on a pastel green; an unconfirmed guess stays
-  // on bone with a dotted amber underline until the user confirms it.
+  // visible via selectionColor. Grows with the editor area so a tap anywhere
+  // in the empty space below the text still focuses the input.
+  input: { flexGrow: 1, minHeight: TOP_PADDING * 2 + LINE_HEIGHT * 3, color: 'transparent' },
+  // A confirmed exercise sits on a pastel green; an unconfirmed guess sits on
+  // a citrine tint with a dotted amber underline until the user confirms it.
   resolved: {
     backgroundColor: colors.mossPale,
     textDecorationLine: 'underline',
@@ -416,19 +569,20 @@ const styles = StyleSheet.create({
     textDecorationStyle: 'solid',
   },
   needsConfirm: {
-    backgroundColor: colors.bone,
+    backgroundColor: colors.citrinePale,
     textDecorationLine: 'underline',
     textDecorationColor: colors.citrine,
     textDecorationStyle: 'dotted',
   },
-  // Overrides the bone highlight with a blue tint for exercises that have
+  // Overrides the highlight with a blue tint for exercises that have
   // prior-session history.
   historyTint: {
-    backgroundColor: '#DCE8FA',
+    backgroundColor: HISTORY_TINT,
   },
   // A small always-present affordance to blur the TextInput/dismiss the
   // keyboard — a full-bleed multiline editor otherwise gives no way to close
   // the keyboard (Enter correctly inserts a newline instead of submitting).
+  // It's a "hide keyboard" chevron, not a ✓: ✓ is reserved for confirming.
   toolbar: {
     position: 'absolute',
     top: spacing.s2,
@@ -452,7 +606,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  pressed: { opacity: 0.7 },
   androidAccessory: { position: 'absolute', left: 0, right: 0 },
+  // Empty-state example + legend.
+  example: {
+    marginHorizontal: spacing.s4,
+    marginTop: spacing.s2,
+    padding: spacing.s3,
+    gap: spacing.s3,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.lead,
+    backgroundColor: colors.bone,
+  },
+  exampleHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.s2 },
+  exampleLines: { flex: 1 },
+  exampleLine: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.body,
+    lineHeight: LINE_HEIGHT,
+    color: colors.graphite,
+  },
+  exampleDismiss: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', margin: -spacing.s2 },
+  exampleCaption: { ...typography.bodyS, color: colors.lead },
+  exampleButton: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.s4,
+    borderRadius: radii.pill,
+    backgroundColor: colors.graphite,
+  },
+  exampleButtonLabel: { ...typography.bodyEmphasis, color: colors.paper },
+  legend: { gap: spacing.s1 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.s2 },
+  legendSwatch: { width: 18, height: 14, borderRadius: radii.sm },
+  legendLabel: { ...typography.monoCaption, color: colors.graphite },
   // Blue-tinted prior-stats strip, opaque so it reads cleanly over the line
   // beneath it (like an autocomplete dropdown).
   priorPanel: {

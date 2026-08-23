@@ -1,6 +1,8 @@
+import '@/lib/i18n';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import { Keyboard } from 'react-native';
 import { NotesEditor, type HighlightSpan } from '@/src/components/NotesEditor';
+import { colors } from '@/lib/theme';
 
 describe('NotesEditor', () => {
   const value = 'Warmup, then RDL 40kg 8x3';
@@ -68,7 +70,58 @@ describe('NotesEditor', () => {
     expect(highlighted.props.pointerEvents).toBe('auto');
   });
 
-  it('provides a circular Done checkmark button that dismisses the keyboard', async () => {
+  it('labels highlighted spans for screen readers and tints needs-confirm spans amber', async () => {
+    await render(
+      <NotesEditor
+        value="RDL 40kg 8x3 then squats 60kg 8x3"
+        onChangeText={jest.fn()}
+        spans={[
+          { start: 0, end: 12, status: 'resolved', entryId: 'e1' },
+          { start: 18, end: 33, status: 'needs-confirm', entryId: 'e2' },
+        ]}
+        onSpanPress={jest.fn()}
+      />,
+    );
+    const confirmed = screen.getByText('RDL 40kg 8x3');
+    expect(confirmed.props.accessibilityLabel).toBe('RDL 40kg 8x3, confirmed');
+    expect(confirmed).toHaveStyle({ backgroundColor: colors.mossPale });
+    const pending = screen.getByText('squats 60kg 8x3');
+    expect(pending.props.accessibilityLabel).toBe('squats 60kg 8x3, needs confirmation');
+    expect(pending).toHaveStyle({ backgroundColor: colors.citrinePale });
+  });
+
+  it('shows a dismissible example + legend while the note is empty, and inserts the example on request', async () => {
+    const onChangeText = jest.fn();
+    await render(<NotesEditor value="" onChangeText={onChangeText} spans={[]} onSpanPress={jest.fn()} />);
+    expect(screen.getByText('BB RDL 40kgx8 50kgx8x4')).toBeTruthy();
+    expect(screen.getByText('Needs your OK')).toBeTruthy();
+    expect(screen.getByText('Confirmed')).toBeTruthy();
+    expect(screen.getByText("Confirmed · you've done this before")).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Use this example' }));
+    expect(onChangeText).toHaveBeenCalledWith('BB RDL 40kgx8 50kgx8x4\nBench 60kg 8x3\n  ⁃ 65kg 6x2');
+  });
+
+  it('hides the example once there is text', async () => {
+    await render(<NotesEditor value="x" onChangeText={jest.fn()} spans={[]} onSpanPress={jest.fn()} />);
+    expect(screen.queryByText('Use this example')).toBeNull();
+  });
+
+  it('hides the example when dismissed', async () => {
+    await render(<NotesEditor value="" onChangeText={jest.fn()} spans={[]} onSpanPress={jest.fn()} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Hide example' }));
+    expect(screen.queryByText('Use this example')).toBeNull();
+  });
+
+  it('orders the grammar chips kg · × · ⁃ same exercise · bar', async () => {
+    await render(<NotesEditor value="" onChangeText={jest.fn()} spans={[]} onSpanPress={jest.fn()} />);
+    const labels = screen.getAllByRole('button').map((b) => b.props.accessibilityLabel);
+    const grammar = labels.filter((l) =>
+      ['Insert kilograms', 'Insert times sign', 'New line for the same exercise', 'Insert bar load'].includes(l),
+    );
+    expect(grammar).toEqual(['Insert kilograms', 'Insert times sign', 'New line for the same exercise', 'Insert bar load']);
+  });
+
+  it('provides a keyboard-dismiss button (labelled Done) that dismisses the keyboard', async () => {
     const dismissSpy = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
     const listeners: Record<string, () => void> = {};
     jest.spyOn(Keyboard, 'addListener').mockImplementation(((event: string, cb: () => void) => {
@@ -82,7 +135,9 @@ describe('NotesEditor', () => {
 
     // Simulate the keyboard opening — only then should Done appear.
     await act(async () => listeners['keyboardDidShow']?.());
-    await fireEvent.press(screen.getByLabelText('Done'));
+    const done = screen.getByLabelText('Done');
+    expect(done.props.accessibilityHint).toBe('Hides the keyboard');
+    await fireEvent.press(done);
     expect(dismissSpy).toHaveBeenCalled();
 
     dismissSpy.mockRestore();

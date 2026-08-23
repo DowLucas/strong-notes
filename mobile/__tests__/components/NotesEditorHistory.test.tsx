@@ -1,3 +1,4 @@
+import '@/lib/i18n';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { NotesEditor, type HighlightSpan } from '@/src/components/NotesEditor';
 import type { ExerciseHistory } from '@/lib/priorHistory';
@@ -43,7 +44,7 @@ describe('NotesEditor Progression hint', () => {
   it('inserts a recommended set onto the line when a target is tapped', async () => {
     const { onChangeText } = await renderEditor();
     // reps 8 → progression leads: "+2.5kg" → 42.5kg×8
-    await fireEvent.press(screen.getByLabelText('+2.5kg, 42.5kg×8'));
+    await fireEvent.press(screen.getByLabelText('42.5 kilograms by 8, plus 2.5 kilograms'));
     expect(onChangeText).toHaveBeenCalledWith('rdl 42.5kgx8');
   });
 
