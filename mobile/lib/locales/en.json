@@ -18,6 +18,21 @@
     "network": "Couldn't reach the server. Check your connection and try again.",
     "unauthorized": "Your session has expired. Please sign in again."
   },
+  "history": {
+    "emptyBody": "Sessions you log will show up here.",
+    "emptyTitle": "No sessions logged yet",
+    "title": "History"
+  },
+  "home": {
+    "greeting": "Hello, {{name}}.",
+    "greetingFallback": "Hello.",
+    "signedInAs": "Signed in as {{email}}",
+    "subtitle": "You're signed in. This is your starting point — build your app from here."
+  },
+  "languagePicker": {
+    "empty": "No languages match.",
+    "searchPlaceholder": "Search by name or code…"
+  },
   "log": {
     "accessory": {
       "insertBar": "Insert bar load",
@@ -27,21 +42,6 @@
     },
     "title": "Log"
   },
-  "home": {
-    "greeting": "Hello, {{name}}.",
-    "greetingFallback": "Hello.",
-    "signedInAs": "Signed in as {{email}}",
-    "subtitle": "You're signed in. This is your starting point — build your app from here."
-  },
-  "history": {
-    "title": "History",
-    "emptyTitle": "No sessions logged yet",
-    "emptyBody": "Sessions you log will show up here."
-  },
-  "languagePicker": {
-    "empty": "No languages match.",
-    "searchPlaceholder": "Search by name or code…"
-  },
   "settings": {
     "about": {
       "repoLabel": "View source on GitHub",
@@ -49,16 +49,6 @@
       "title": "About",
       "version": "Version {{version}}"
     }
-  },
-  "stats": {
-    "title": "Stats",
-    "noGoalTitle": "No goal set yet",
-    "noGoalBody": "Pick a preset below or describe your goal to start tracking.",
-    "presetHypertrophy": "Hypertrophy",
-    "presetStrength": "Strength",
-    "presetEndurance": "Endurance",
-    "goalPlaceholder": "Or describe your goal…",
-    "setGoal": "Set goal"
   },
   "signIn": {
     "checkEmail": "Check your email",
@@ -80,13 +70,30 @@
     "verifyFailedBody": "That code is invalid or expired. Request a new magic link and try again.",
     "verifying": "Verifying…"
   },
+  "stats": {
+    "goalPlaceholder": "Or describe your goal…",
+    "noGoalBody": "Pick a preset below or describe your goal to start tracking.",
+    "noGoalTitle": "No goal set yet",
+    "presetEndurance": "Endurance",
+    "presetHypertrophy": "Hypertrophy",
+    "presetStrength": "Strength",
+    "range": {
+      "1m": "1m",
+      "1y": "1y",
+      "3m": "3m",
+      "6m": "6m",
+      "all": "All"
+    },
+    "setGoal": "Set goal",
+    "title": "Stats"
+  },
   "you": {
-    "about": "About the app",
-    "accountEyebrow": "account",
-    "abbreviationsEyebrow": "dictionary",
     "abbreviations": {
       "confirm": "Confirm"
     },
+    "abbreviationsEyebrow": "dictionary",
+    "about": "About the app",
+    "accountEyebrow": "account",
     "avatar": {
       "changePhoto": "Change profile photo",
       "choosePhoto": "Choose from library",
