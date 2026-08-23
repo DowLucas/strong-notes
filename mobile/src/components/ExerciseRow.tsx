@@ -2,35 +2,30 @@ import { View, Pressable, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Text } from '@/components/Text';
 import { colors, spacing, typography } from '@/lib/theme';
-import {
-  formatDelta, formatHeadline, relativeDay, seriesFor, type ExerciseProgress,
-} from '@/lib/exerciseProgress';
+import { formatHeadline, relativeDay, seriesFor, type ExerciseProgress } from '@/lib/exerciseProgress';
 import { Sparkline } from './Sparkline';
-
-function deltaColor(delta: ExerciseProgress['delta']): string {
-  if (!delta || delta.value === 0) return colors.lead;
-  return delta.value > 0 ? colors.moss : colors.brick;
-}
+import { useDeltaText } from './useDeltaText';
 
 /** One exercise in the Stats list: name, headline value, delta, sessions/last line and a sparkline. */
 export function ExerciseRow({ progress, today, onPress }: { progress: ExerciseProgress; today: string; onPress: () => void }) {
   const { t } = useTranslation();
   const name = progress.name ?? t('stats.unnamedExercise');
   const headline = formatHeadline(progress.headline);
-  const delta = formatDelta(progress.delta);
+  const delta = useDeltaText(progress.delta);
   const sub = `${t('stats.sessions', { count: progress.sessionCount })} · ${t('stats.last', { when: relativeDay(progress.lastDate, today) })}`;
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       accessibilityRole="button"
-      accessibilityLabel={`${name}, ${headline}, ${delta}, ${sub}`}
+      accessibilityLabel={`${name}, ${headline}, ${delta.a11y}, ${sub}`}
+      accessibilityHint={t('stats.openProgressHint')}
     >
       <View style={styles.main}>
         <View style={styles.topLine}>
           <Text variant="bodyEmphasis" style={styles.name} numberOfLines={1}>{name}</Text>
           <Text style={styles.headline}>{headline}</Text>
-          <Text style={[styles.delta, { color: deltaColor(progress.delta) }]}>{delta}</Text>
+          <Text style={[styles.delta, { color: delta.color }]}>{delta.text}</Text>
         </View>
         <Text variant="bodyS" style={styles.sub}>{sub}</Text>
       </View>
@@ -44,6 +39,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s3,
+    minHeight: 56,
     paddingVertical: spacing.s3,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.ruleSoft,
