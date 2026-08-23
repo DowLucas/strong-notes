@@ -63,6 +63,7 @@ function renderSegments(
   text: string,
   spans: HighlightSpan[],
   onSpanTap: (span: HighlightSpan) => void,
+  onSpanLongPress: (span: HighlightSpan) => void,
   onSpanLayout: (entryId: string, rect: SpanRect) => void,
   historyIds: Set<string>,
 ): ReactNode[] {
@@ -92,6 +93,7 @@ function renderSegments(
           historyIds.has(span.entryId) ? styles.historyTint : null,
         ]}
         onPress={() => onSpanTap(span)}
+        onLongPress={() => onSpanLongPress(span)}
         onLayout={(e) => onSpanLayout(span.entryId, e.nativeEvent.layout)}
         pointerEvents="auto"
       >
@@ -152,10 +154,28 @@ export function NotesEditor({
   // Drives the prior-stats panel's fade/slide as the caret moves between lines.
   const historyAnim = useRef(new Animated.Value(0)).current;
 
-  // Tapping an exercise moves the caret onto its line — which surfaces that
-  // exercise's Progression hint — and opens the group's popover: confirm for
-  // an unresolved guess, read-only details for a confirmed exercise.
-  function handleSpanTap(span: HighlightSpan) {
+  // Tap = place the caret (so a highlighted word can be edited like any
+  // other text); long-press = open the group's popover (confirm / details).
+  // Confirming is also one tap away via the keyboard bar and the Confirm-all
+  // bar, so a plain tap never has to open anything.
+  //
+  // When the tap comes through the measured hit target we know where on the
+  // span the finger landed and map it to a character offset (linear over the
+  // span's width — close enough for a proportional font); the inline Text
+  // tap has no position, so the caret goes to the span end.
+  function handleSpanTap(span: HighlightSpan, locationX?: number) {
+    const rect = spanRects[span.entryId];
+    let caretPos = span.end;
+    if (locationX != null && rect && rect.width > 0) {
+      const frac = Math.min(1, Math.max(0, (locationX - HIT_PADDING) / rect.width));
+      caretPos = span.start + Math.round(frac * (span.end - span.start));
+    }
+    caretRef.current = caretPos;
+    setCaret(caretPos);
+    setForcedSelection({ start: caretPos, end: caretPos });
+  }
+
+  function handleSpanLongPress(span: HighlightSpan) {
     caretRef.current = span.end;
     setCaret(span.end);
     setForcedSelection({ start: span.end, end: span.end });
@@ -326,7 +346,7 @@ export function NotesEditor({
       />
       <View style={styles.overlay} pointerEvents="box-none">
         <Text style={styles.text}>
-          {renderSegments(value, spans, handleSpanTap, handleSpanLayout, historyIds)}
+          {renderSegments(value, spans, handleSpanTap, handleSpanLongPress, handleSpanLayout, historyIds)}
         </Text>
         {spans.map((span) => {
           const rect = spanRects[span.entryId];
@@ -340,11 +360,15 @@ export function NotesEditor({
             <Pressable
               key={`hit-${span.entryId}`}
               testID={`span-hit-target-${span.entryId}`}
-              onPress={() => handleSpanTap(span)}
+              onPress={(e) => handleSpanTap(span, e.nativeEvent?.locationX)}
+              onLongPress={() => handleSpanLongPress(span)}
+              delayLongPress={350}
               accessibilityRole="button"
               accessibilityLabel={value.slice(span.start, span.end)}
               accessibilityHint={
-                span.status === 'resolved' ? 'review this logged exercise' : 'confirm this exercise'
+                span.status === 'resolved'
+                  ? 'tap to place the cursor, long-press to review this logged exercise'
+                  : 'tap to place the cursor, long-press to confirm this exercise'
               }
               accessibilityState={{ selected: span.status === 'resolved' }}
               style={{

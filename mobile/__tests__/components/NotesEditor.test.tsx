@@ -8,7 +8,7 @@ describe('NotesEditor', () => {
     { start: 8, end: 25, status: 'resolved', entryId: 'e1' }, // "then RDL 40kg 8x3"
   ];
 
-  it('moves the caret onto the exercise line and opens the details popover when a resolved span is tapped', async () => {
+  it('tap on a resolved span places the caret (no popover); long-press opens the details popover', async () => {
     const onSpanPress = jest.fn();
     await render(
       <NotesEditor value={value} onChangeText={jest.fn()} spans={spans} onSpanPress={onSpanPress} placeholder="Start typing…" />,
@@ -16,13 +16,16 @@ describe('NotesEditor', () => {
 
     const span = screen.getByText('then RDL 40kg 8x3');
     await fireEvent.press(span);
-    // Caret jumps to the span end (surfacing the progression hint) AND the
-    // popover opens so a confirmed group's details can be reviewed.
+    // Without a measured rect we can't map the tap to an offset, so the
+    // caret goes to the span end — and the popover does NOT open.
     expect(screen.getByPlaceholderText('Start typing…').props.selection).toEqual({ start: 25, end: 25 });
+    expect(onSpanPress).not.toHaveBeenCalled();
+
+    await fireEvent(span, 'longPress');
     expect(onSpanPress).toHaveBeenCalledWith('e1');
   });
 
-  it('opens the confirm popover when a needs-confirm span is tapped', async () => {
+  it('tap on a needs-confirm span also just places the caret; long-press opens the confirm popover', async () => {
     const onSpanPress = jest.fn();
     const needsConfirm: HighlightSpan[] = [{ start: 8, end: 25, status: 'needs-confirm', entryId: 'e1' }];
     await render(
@@ -30,10 +33,12 @@ describe('NotesEditor', () => {
     );
 
     await fireEvent.press(screen.getByText('then RDL 40kg 8x3'));
+    expect(onSpanPress).not.toHaveBeenCalled();
+    await fireEvent(screen.getByText('then RDL 40kg 8x3'), 'longPress');
     expect(onSpanPress).toHaveBeenCalledWith('e1');
   });
 
-  it('registers a tap slightly outside the rendered glyphs, via the measured enlarged hit target', async () => {
+  it('maps a tap on the measured hit target to the character under the finger', async () => {
     const onSpanPress = jest.fn();
     await render(
       <NotesEditor value={value} onChangeText={jest.fn()} spans={spans} onSpanPress={onSpanPress} placeholder="Start typing…" />,
@@ -43,15 +48,19 @@ describe('NotesEditor', () => {
     // Report the span's measured layout, as RN would after it renders —
     // this is what makes the enlarged Pressable appear.
     await act(async () => {
-      fireEvent(span, 'layout', { nativeEvent: { layout: { x: 40, y: 20, width: 100, height: 20 } } });
+      fireEvent(span, 'layout', { nativeEvent: { layout: { x: 40, y: 20, width: 170, height: 20 } } });
     });
 
-    // A real hit-target Pressable should now exist beyond the exact glyph
-    // bounds, enlarged by the hit-padding around the measured layout.
     const hitTarget = screen.getByTestId('span-hit-target-e1');
-    expect(hitTarget.props.style).toMatchObject({ left: 40 - 8, top: 20 - 8, width: 100 + 16, height: 20 + 16 });
-    await fireEvent.press(hitTarget);
-    expect(screen.getByPlaceholderText('Start typing…').props.selection).toEqual({ start: 25, end: 25 });
+    expect(hitTarget.props.style).toMatchObject({ left: 40 - 8, top: 20 - 8, width: 170 + 16, height: 20 + 16 });
+    // Span is 17 chars over 170px → 10px per char. A tap 8px (padding) + 50px
+    // in lands on offset 5 → caret at 8 + 5 = 13 ("then |RDL").
+    await fireEvent.press(hitTarget, { nativeEvent: { locationX: 8 + 50, locationY: 10 } });
+    expect(screen.getByPlaceholderText('Start typing…').props.selection).toEqual({ start: 13, end: 13 });
+    expect(onSpanPress).not.toHaveBeenCalled();
+
+    await fireEvent(hitTarget, 'longPress');
+    expect(onSpanPress).toHaveBeenCalledWith('e1');
   });
 
   it('exposes the editable text and reports changes', async () => {

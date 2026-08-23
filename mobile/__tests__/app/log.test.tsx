@@ -265,7 +265,7 @@ describe('LogScreen (notes-style)', () => {
     const input = screen.getByPlaceholderText('Start typing your workout…');
     await fireEvent.changeText(input, 'shoulder rotation x8');
     await waitFor(() => expect(screen.getByText('shoulder rotation x8').props.pointerEvents).toBe('auto'), { timeout: 3000 });
-    await fireEvent.press(screen.getByText('shoulder rotation x8'));
+    await fireEvent(screen.getByText('shoulder rotation x8'), 'longPress');
     await waitFor(() => expect(screen.getByText('Shoulder Rotation')).toBeTruthy());
     await fireEvent.press(screen.getByText('Confirm exercise'));
 
@@ -306,7 +306,7 @@ describe('LogScreen (notes-style)', () => {
       () => expect(screen.getByText('bb deadlifts 30kg 8x3').props.pointerEvents).toBe('auto'),
       { timeout: 3000 },
     );
-    await fireEvent.press(screen.getByText('bb deadlifts 30kg 8x3'));
+    await fireEvent(screen.getByText('bb deadlifts 30kg 8x3'), 'longPress');
     await waitFor(() => expect(screen.getByText('Barbell Deadlift')).toBeTruthy());
 
     await fireEvent.press(screen.getByText('Confirm exercise'));
@@ -338,7 +338,7 @@ describe('LogScreen (notes-style)', () => {
     const input = screen.getByPlaceholderText('Start typing your workout…');
     await fireEvent.changeText(input, 'bb 30kg 8x3');
     await waitFor(() => expect(screen.getByText('bb 30kg 8x3').props.pointerEvents).toBe('auto'), { timeout: 3000 });
-    await fireEvent.press(screen.getByText('bb 30kg 8x3'));
+    await fireEvent(screen.getByText('bb 30kg 8x3'), 'longPress');
     await waitFor(() => expect(screen.getByText('Barbell Complex')).toBeTruthy());
     await fireEvent.press(screen.getByText('Confirm exercise'));
 
@@ -382,7 +382,7 @@ describe('LogScreen (notes-style)', () => {
       { timeout: 3000 },
     );
 
-    await fireEvent.press(screen.getByText('As Drip 8x3 50kg'));
+    await fireEvent(screen.getByText('As Drip 8x3 50kg'), 'longPress');
     await waitFor(() => expect(screen.getByText('What does "As" mean?')).toBeTruthy());
 
     await fireEvent.press(screen.getByText('Assisted'));
