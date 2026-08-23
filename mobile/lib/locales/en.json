@@ -61,6 +61,24 @@
       "needsAnswer_other": "{{count}} need an answer — tap them"
     },
     "entryDate": "Log for {{date}}",
+    "popover": {
+      "answerHint": "Saves the exercise with this answer",
+      "close": "Close",
+      "customAnswerLabel": "Your own answer",
+      "customAnswerPlaceholder": "Or type your own…",
+      "dismiss": "Dismiss",
+      "kg": "{{value}} kg",
+      "nameLabel": "Exercise name",
+      "namePlaceholder": "Exercise name",
+      "readAs": "We read this as {{name}}",
+      "reps_one": "{{count}} rep",
+      "reps_other": "{{count}} reps",
+      "save": "Save",
+      "saveAs": "Save as {{name}}",
+      "sets_one": "{{count}} set",
+      "sets_other": "{{count}} sets",
+      "youWrote": "You wrote: {{line}}"
+    },
     "saved": "Saved",
     "title": "Log",
     "viewProgress": "View progress ›"

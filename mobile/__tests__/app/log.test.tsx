@@ -266,8 +266,7 @@ describe('LogScreen (notes-style)', () => {
     await fireEvent.changeText(input, 'shoulder rotation x8');
     await waitFor(() => expect(screen.getByText('shoulder rotation x8').props.pointerEvents).toBe('auto'), { timeout: 3000 });
     await fireEvent.press(screen.getByLabelText('Confirm Shoulder Rotation'));
-    await waitFor(() => expect(screen.getByText('Shoulder Rotation')).toBeTruthy());
-    await fireEvent.press(screen.getByText('Confirm exercise'));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Save as Shoulder Rotation' }));
 
     await waitFor(() => {
       expect(createAbbreviation).toHaveBeenCalledWith({ token: 'shoulder', exerciseId: 'ex-sr' });
@@ -278,6 +277,32 @@ describe('LogScreen (notes-style)', () => {
     await waitFor(async () => {
       const cached = await getCachedAbbreviations();
       expect(cached.map((a) => a.token).sort()).toEqual(['ROTATION', 'SHOULDER']);
+    });
+  });
+
+  it('saves the exercise under a name edited in the sheet', async () => {
+    mockResolveLine.mockReset().mockResolvedValue({
+      resolvedTokens: [],
+      unresolvedTokens: ['inc', 'bench'],
+      llmGuess: { exerciseName: 'Bench Press', muscles: ['CHEST'] },
+    });
+    const createExercise = jest.fn().mockResolvedValue({ id: 'ex-ib', name: 'Incline Bench Press', category: 'COMPOUND', createdAt: '' });
+    const createAbbreviation = jest.fn().mockResolvedValue({});
+    (useAuth as jest.Mock).mockReturnValue({ api: { resolveLine: mockResolveLine, createExercise, createAbbreviation } });
+
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    await fireEvent.changeText(input, 'inc bench 60kg 8x3');
+    await waitFor(() => expect(screen.getByText('inc bench 60kg 8x3').props.pointerEvents).toBe('auto'), { timeout: 3000 });
+    await fireEvent.press(screen.getByLabelText('Confirm Bench Press'));
+    expect(await screen.findByText('You wrote: inc bench 60kg 8x3')).toBeTruthy();
+    await fireEvent.changeText(screen.getByLabelText('Exercise name'), 'Incline Bench Press');
+    await fireEvent.press(screen.getByRole('button', { name: 'Save as Incline Bench Press' }));
+
+    await waitFor(() => {
+      expect(createExercise).toHaveBeenCalledWith({ name: 'Incline Bench Press', muscles: ['CHEST'] });
+      expect(createAbbreviation).toHaveBeenCalledWith({ token: 'inc', exerciseId: 'ex-ib' });
+      expect(createAbbreviation).toHaveBeenCalledWith({ token: 'bench', exerciseId: 'ex-ib' });
     });
   });
 
@@ -307,9 +332,7 @@ describe('LogScreen (notes-style)', () => {
       { timeout: 3000 },
     );
     await fireEvent.press(screen.getByLabelText('Confirm Barbell Deadlift'));
-    await waitFor(() => expect(screen.getByText('Barbell Deadlift')).toBeTruthy());
-
-    await fireEvent.press(screen.getByText('Confirm exercise'));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Save as Barbell Deadlift' }));
 
     await waitFor(() => {
       expect(createExercise).toHaveBeenCalledWith({ name: 'Barbell Deadlift', muscles: ['HAMSTRINGS', 'GLUTES', 'BACK'] });
@@ -339,8 +362,7 @@ describe('LogScreen (notes-style)', () => {
     await fireEvent.changeText(input, 'bb 30kg 8x3');
     await waitFor(() => expect(screen.getByText('bb 30kg 8x3').props.pointerEvents).toBe('auto'), { timeout: 3000 });
     await fireEvent.press(screen.getByLabelText('Confirm Barbell Complex'));
-    await waitFor(() => expect(screen.getByText('Barbell Complex')).toBeTruthy());
-    await fireEvent.press(screen.getByText('Confirm exercise'));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Save as Barbell Complex' }));
 
     await waitFor(() => {
       expect(createExercise).toHaveBeenCalledWith({ name: 'Barbell Complex', muscles: ['BACK'] });

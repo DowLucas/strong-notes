@@ -1,6 +1,6 @@
 // app/(tabs)/index.tsx
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Modal, Pressable, StyleSheet, Keyboard } from 'react-native';
+import { View, Text, StyleSheet, Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -29,6 +29,14 @@ const SCAN_DELAY_MS = 700;
 
 function todayDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** The full note line containing character offset `at` (trimmed). */
+function lineAt(note: string, at: number | null | undefined): string | undefined {
+  if (at == null) return undefined;
+  const start = note.lastIndexOf('\n', at - 1) + 1;
+  const nl = note.indexOf('\n', at);
+  return note.slice(start, nl === -1 ? note.length : nl).trim() || undefined;
 }
 
 function toLocalSetEntry(e: ScannedEntry): LocalSetEntry {
@@ -219,13 +227,21 @@ export default function LogScreen() {
     if (target) setPopoverGroupId(target.groupId);
   }
 
-  async function handleConfirm(groupEntries: ScannedEntry[], modifierValue?: string) {
+  async function handleConfirm(groupEntries: ScannedEntry[], modifierValue?: string, overrideName?: string) {
     setPopoverGroupId(null);
-    await confirmGroup(groupEntries, modifierValue);
+    await confirmGroup(groupEntries, modifierValue, overrideName);
   }
 
-  /** Confirms one group (same path for the popover and bulk confirm). Returns false on failure. */
-  async function confirmGroup(groupEntries: ScannedEntry[], modifierValue?: string): Promise<boolean> {
+  /**
+   * Confirms one group (same path for the popover and bulk confirm). Returns
+   * false on failure. `overrideName` is a name the user edited in the sheet
+   * and replaces the guessed name (a modifier answer still prefixes it).
+   */
+  async function confirmGroup(
+    groupEntries: ScannedEntry[],
+    modifierValue?: string,
+    overrideName?: string,
+  ): Promise<boolean> {
     const first = groupEntries[0];
     try {
       // A clarifying-question answer (e.g. "Assisted" for "As") is woven into
@@ -236,11 +252,12 @@ export default function LogScreen() {
       // the exercise itself) or is woven in front of it (a qualifier like
       // "Assisted").
       const isExerciseQuestion = first.clarifyingQuestion?.kind === 'exercise';
+      const baseName = overrideName ?? first.exerciseName!;
       const finalName = modifierValue
-        ? isExerciseQuestion
+        ? isExerciseQuestion && !overrideName
           ? modifierValue
-          : `${modifierValue} ${first.exerciseName}`
-        : first.exerciseName!;
+          : `${modifierValue} ${baseName}`
+        : baseName;
       const exercise = await api.createExercise({ name: finalName, muscles: first.muscles ?? [] });
       // Every token that names the exercise is bound to it ("shoulder" AND
       // "rotation"), otherwise the next scan finds the leftovers unresolved
@@ -324,6 +341,7 @@ export default function LogScreen() {
     }));
 
   const popoverEntries = entries.filter((e) => e.groupId === popoverGroupId);
+  const popoverLine = popoverEntries.length > 0 ? lineAt(text, popoverEntries[0].spanStart) : undefined;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -344,24 +362,12 @@ export default function LogScreen() {
         dictionaryTokens={dictionaryTokens}
         priorSessionsByExercise={priorSessions}
       />
-      <Modal
-        visible={popoverEntries.length > 0}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPopoverGroupId(null)}
-      >
-        <Pressable style={styles.backdrop} onPress={() => setPopoverGroupId(null)}>
-          <View style={styles.popoverWrap}>
-            {popoverEntries.length > 0 ? (
-              <EntryPopover
-                entries={popoverEntries}
-                onConfirm={handleConfirm}
-                onClose={() => setPopoverGroupId(null)}
-              />
-            ) : null}
-          </View>
-        </Pressable>
-      </Modal>
+      <EntryPopover
+        entries={popoverEntries}
+        rawLine={popoverLine}
+        onConfirm={handleConfirm}
+        onClose={() => setPopoverGroupId(null)}
+      />
       {showConfirmBar ? (
         <ConfirmBar
           pending={pendingGroups}
@@ -379,6 +385,4 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.paper },
   dateLabel: { ...typography.monoLabel, color: colors.lead, paddingHorizontal: spacing.s4, paddingTop: spacing.s3, textTransform: 'uppercase' },
   error: { color: colors.brick, paddingHorizontal: spacing.s4, paddingTop: spacing.s2 },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.2)', justifyContent: 'center', padding: spacing.s5 },
-  popoverWrap: { alignSelf: 'stretch' },
 });
