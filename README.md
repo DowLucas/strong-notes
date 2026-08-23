@@ -5,8 +5,8 @@ Log your workouts as fast as free text — get real data back.
 Strong Notes is a gym logger built on a simple premise: the fastest way to log a
 workout is the way people already do it — a few lines of shorthand in a notes app,
 no tapping through pickers and modals. Strong Notes reads that shorthand, understands
-it, and turns it into structured data: sets-per-muscle-per-week against your goals,
-history, trends, and a muscle heatmap.
+it, and turns it into structured data: session history and, per exercise, a
+progress view — top-set weight over time, estimated 1RM, volume, and your PRs.
 
 You type:
 
@@ -31,6 +31,10 @@ people actually write it:
 - **Continuation lines** — an indented `⁃` line inherits the exercise from the line
   above.
 - **Prose** — "did Bench Press 60kg 8x3" works too.
+- **Weight first** — `30kg bb deadlifts 8x3` puts the load ahead of the name.
+- **Loose spacing and `@`** — `8 x 3`, `30 kg`, `30kg x 8 x 3`, `3x8 @ 30kg` all read
+  the same as their compact forms.
+- **Rep lists** — `30kg 8,8,6` (or `30kgx8,8,6`) is one set per entry.
 
 Shorthand the parser doesn't recognize is resolved through a dictionary → LLM
 pipeline, and only saved to your personal dictionary once you confirm it with a tap.
@@ -84,7 +88,7 @@ is `DATABASE_URL`, `POSTGRES_PASSWORD`, and `JWT_SECRET`.
 
 Expo SDK 54 / React Native app (TypeScript), offline-first via `expo-sqlite`, with
 [Expo Router](https://docs.expo.dev/router/introduction/) for navigation,
-`react-native-svg` for the muscle heatmap, and i18n through `i18next`.
+`react-native-svg` for the progress charts, and i18n through `i18next`.
 
 ### Run
 

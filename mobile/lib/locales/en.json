@@ -18,6 +18,15 @@
     "network": "Couldn't reach the server. Check your connection and try again.",
     "unauthorized": "Your session has expired. Please sign in again."
   },
+  "exercise": {
+    "metricEst1rm": "Est. 1RM",
+    "metricTopSet": "Top set",
+    "metricVolume": "Volume",
+    "notFoundBody": "Nothing logged in this range.",
+    "notFoundTitle": "No data for this exercise",
+    "pr": "PR",
+    "sessionsHeading": "Sessions"
+  },
   "history": {
     "emptyBody": "Sessions you log will show up here.",
     "emptyTitle": "No sessions logged yet",
@@ -72,12 +81,9 @@
     "verifying": "Verifying…"
   },
   "stats": {
-    "goalPlaceholder": "Or describe your goal…",
-    "noGoalBody": "Pick a preset below or describe your goal to start tracking.",
-    "noGoalTitle": "No goal set yet",
-    "presetEndurance": "Endurance",
-    "presetHypertrophy": "Hypertrophy",
-    "presetStrength": "Strength",
+    "emptyBody": "Log a workout and confirm the exercise to see it here.",
+    "emptyTitle": "No progress yet",
+    "last": "last {{when}}",
     "range": {
       "1m": "1m",
       "1y": "1y",
@@ -85,12 +91,10 @@
       "6m": "6m",
       "all": "All"
     },
-    "setGoal": "Set goal",
-    "title": "Stats",
-    "unnamedExercise": "Unnamed exercise",
     "sessions_one": "{{count}} session",
     "sessions_other": "{{count}} sessions",
-    "last": "last {{when}}"
+    "title": "Progress",
+    "unnamedExercise": "Unnamed exercise"
   },
   "you": {
     "abbreviations": {
@@ -120,14 +124,5 @@
     "signOutConfirmBody": "You'll need a new magic link to sign back in.",
     "signOutConfirmTitle": "Sign out?",
     "title": "Profile"
-  },
-  "exercise": {
-    "metricTopSet": "Top set",
-    "metricEst1rm": "Est. 1RM",
-    "metricVolume": "Volume",
-    "notFoundTitle": "No data for this exercise",
-    "notFoundBody": "Nothing logged in this range.",
-    "sessionsHeading": "Sessions",
-    "pr": "PR"
   }
 }

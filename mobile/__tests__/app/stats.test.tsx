@@ -1,41 +1,58 @@
 import '@/lib/i18n';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import StatsScreen from '../../app/(tabs)/stats';
-import { useAuth } from '@/lib/auth';
+import { resetDbForTests } from '@/src/db/client';
+import { upsertLocalSession } from '@/src/db/sessionsRepo';
+import { cacheAbbreviations } from '@/src/db/abbreviationsRepo';
 
-jest.mock('@/lib/auth');
-jest.mock('@/src/sync/syncEngine', () => ({ syncNow: jest.fn().mockResolvedValue({ pushed: 0, pulled: 0 }) }));
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({
+  router: { push: (...a: unknown[]) => mockPush(...a), back: jest.fn() },
+}));
 
-function fakeApi(overrides: Record<string, jest.Mock> = {}) {
-  return {
-    getGoalProgress: jest.fn().mockRejectedValue(Object.assign(new Error('not found'), { status: 404 })),
-    createGoal: jest.fn().mockResolvedValue({ id: 'g1', type: 'HYPERTROPHY', targets: [] }),
-    resolveGoal: jest.fn(),
-    ...overrides,
-  };
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
 }
+function daysAgo(n: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+const entry = (id: string, weightKg: number) => ({
+  id, exerciseId: 'ex-dl', equipment: null, weightKg, reps: 5, sets: 3, rawText: 'x', parsedBy: 'DICTIONARY' as const, order: 0, synced: 0 as const,
+});
+
+beforeEach(async () => {
+  resetDbForTests();
+  mockPush.mockClear();
+  await cacheAbbreviations([{ id: '1', token: 'DL', exerciseId: 'ex-dl', exerciseName: 'Barbell Deadlift', source: 'USER_ADDED', createdAt: '' }]);
+});
 
 describe('StatsScreen', () => {
-  it('shows a no-goal-yet empty state on a 404, not a generic error', async () => {
-    (useAuth as jest.Mock).mockReturnValue({ api: fakeApi() });
+  it('shows the empty state when nothing is logged', async () => {
     await render(<StatsScreen />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/no goal set yet/i)).toBeTruthy();
-    });
+    await waitFor(() => expect(screen.getByText('No progress yet')).toBeTruthy());
   });
 
-  it('creates a preset goal and refreshes progress', async () => {
-    const api = fakeApi();
-    (useAuth as jest.Mock).mockReturnValue({ api });
+  it('lists exercises with headline and delta, and navigates on tap', async () => {
+    await upsertLocalSession({ date: daysAgo(20), notes: null, synced: 0, entries: [entry('a', 90)] });
+    await upsertLocalSession({ date: todayIso(), notes: null, synced: 0, entries: [entry('b', 100)] });
+
     await render(<StatsScreen />);
-    await waitFor(() => screen.getByText('Hypertrophy'));
+    await waitFor(() => expect(screen.getByText('Barbell Deadlift')).toBeTruthy());
+    expect(screen.getByText('100kg')).toBeTruthy();
+    expect(screen.getByText('▲ +10')).toBeTruthy();
 
-    await fireEvent.press(screen.getByText('Hypertrophy'));
+    await fireEvent.press(screen.getByRole('button', { name: /Barbell Deadlift/ }));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/exercise/[id]', params: { id: 'ex-dl' } });
+  });
 
-    await waitFor(() => {
-      expect(api.createGoal).toHaveBeenCalledWith({ type: 'HYPERTROPHY' });
-      expect(api.getGoalProgress).toHaveBeenCalledTimes(2); // initial mount + post-create refresh
-    });
+  it('changing the range reloads the list', async () => {
+    await upsertLocalSession({ date: daysAgo(200), notes: null, synced: 0, entries: [entry('a', 90)] });
+
+    await render(<StatsScreen />);
+    await waitFor(() => expect(screen.getByText('No progress yet')).toBeTruthy()); // outside 3m
+    await fireEvent.press(screen.getByRole('button', { name: 'All' }));
+    await waitFor(() => expect(screen.getByText('Barbell Deadlift')).toBeTruthy());
   });
 });
