@@ -21,8 +21,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    borderWidth: 0.5,
-    borderColor: colors.ruleSoft,
+    // A visible outline so an unselected chip still reads as a tappable option.
+    borderWidth: 1,
+    borderColor: colors.bone,
   },
   solid: {
     backgroundColor: colors.graphite,

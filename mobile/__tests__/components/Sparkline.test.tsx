@@ -13,8 +13,9 @@ describe('Sparkline', () => {
     expect(screen.getAllByTestId('sparkline-segment')).toHaveLength(2);
   });
 
-  it('renders nothing for fewer than two numeric points', async () => {
+  it('renders a same-size placeholder instead of a line for fewer than two numeric points', async () => {
     await render(<Sparkline points={[{ date: '2026-06-01', value: 60 }]} />);
     expect(screen.queryAllByTestId('sparkline-segment')).toHaveLength(0);
+    expect(screen.getByTestId('sparkline-placeholder').props.width).toBe(80);
   });
 });

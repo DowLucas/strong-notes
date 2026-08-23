@@ -34,7 +34,7 @@ export function EntryPopover({
 
   function viewProgress() {
     onClose();
-    router.push({ pathname: '/exercise/[id]', params: { id: first.exerciseId! } });
+    router.push({ pathname: '/exercise/[id]', params: { id: first.exerciseId!, name: title } });
   }
 
   return (

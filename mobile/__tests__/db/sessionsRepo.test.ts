@@ -3,6 +3,7 @@ import {
   upsertLocalSession,
   getLocalSession,
   listUnsyncedSessions,
+  listAllLocalSessions,
   markSessionSynced,
 } from '@/src/db/sessionsRepo';
 
@@ -11,6 +12,17 @@ beforeEach(() => {
 });
 
 describe('sessionsRepo', () => {
+  it('lists every session newest first with its entries in order', async () => {
+    const e = (id: string, order: number) => ({ id, exerciseId: null, equipment: null, weightKg: null, reps: null, sets: null, rawText: id, parsedBy: 'DICTIONARY' as const, order, synced: 0 as const });
+    await upsertLocalSession({ date: '2025-01-01', notes: null, synced: 0, entries: [e('old', 0)] });
+    await upsertLocalSession({ date: '2026-07-04', notes: 'leg day', synced: 0, entries: [e('b', 1), e('a', 0)] });
+
+    const all = await listAllLocalSessions();
+    expect(all.map((s) => s.date)).toEqual(['2026-07-04', '2025-01-01']);
+    expect(all[0].entries.map((x) => x.id)).toEqual(['a', 'b']);
+    expect(all[0].notes).toBe('leg day');
+  });
+
   it('upserts a session with entries and reads it back', async () => {
     await upsertLocalSession({
       date: '2026-07-04',

@@ -97,11 +97,11 @@ export async function getLocalSession(date: string): Promise<LocalSession | null
   return { date: row.date, notes: row.notes, synced: row.synced as 0 | 1, entries };
 }
 
-export async function listLocalSessions(fromDate: string, toDate: string): Promise<LocalSession[]> {
+// Every session with its entries, newest first — powers the History tab.
+export async function listAllLocalSessions(): Promise<LocalSession[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ date: string; notes: string | null; synced: number }>(
-    `SELECT * FROM sessions WHERE date >= ? AND date <= ? ORDER BY date DESC`,
-    [fromDate, toDate]
+    `SELECT * FROM sessions ORDER BY date DESC`,
   );
   const sessions: LocalSession[] = [];
   for (const row of rows) {

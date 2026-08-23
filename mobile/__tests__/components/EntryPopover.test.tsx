@@ -91,7 +91,7 @@ describe('EntryPopover', () => {
     );
     await fireEvent.press(screen.getByText('View progress ›'));
     expect(onClose).toHaveBeenCalled();
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/exercise/[id]', params: { id: 'ex-1' } });
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/exercise/[id]', params: { id: 'ex-1', name: 'Bench Press' } });
   });
 
   it('does not offer "View progress" for an unconfirmed group', async () => {

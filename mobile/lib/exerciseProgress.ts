@@ -5,6 +5,8 @@
 export type StatsRow = {
   exerciseId: string;
   exerciseName: string | null;
+  /** Raw text of the most recently logged entry for this exercise — the name fallback when the cache has none. */
+  latestRawText: string | null;
   sessionDate: string; // YYYY-MM-DD
   weightKg: number | null;
   reps: number | null;
@@ -32,13 +34,17 @@ export type Unit = 'kg' | 'reps';
 export type Range = '1m' | '3m' | '6m' | '1y' | 'all';
 export const RANGES: Range[] = ['1m', '3m', '6m', '1y', 'all'];
 
+export type Measure = { value: number; unit: Unit };
+
 export type ExerciseProgress = {
   exerciseId: string;
   name: string | null;
   unit: Unit;
   points: SessionPoint[];
-  headline: { value: number; unit: Unit };
-  delta: { value: number; unit: Unit } | null;
+  /** Top-set headline (last session). See `headlineFor` for the other metrics. */
+  headline: Measure;
+  /** Top-set change vs the first session in range; null with a single session. */
+  delta: Measure | null;
   lastDate: string;
   sessionCount: number;
 };
@@ -118,7 +124,7 @@ function buildProgress(exerciseId: string, rows: StatsRow[]): ExerciseProgress {
 
   return {
     exerciseId,
-    name: rows.find((r) => r.exerciseName)?.exerciseName ?? null,
+    name: rows.find((r) => r.exerciseName)?.exerciseName ?? rows.find((r) => r.latestRawText)?.latestRawText ?? null,
     unit,
     points,
     headline,
@@ -160,15 +166,59 @@ export function isPr(p: ExerciseProgress, index: number): boolean {
   return series.slice(0, index).every((s) => s.value == null || s.value < v);
 }
 
-export function formatHeadline(h: { value: number; unit: Unit }): string {
-  return h.unit === 'reps' ? `×${h.value}` : `${h.value}kg`;
+/** Dates of every PR point (see `isPr`). Computed once so callers can flag points from a narrower range. */
+export function prDates(p: ExerciseProgress): Set<string> {
+  return new Set(p.points.filter((_, i) => isPr(p, i)).map((pt) => pt.date));
 }
 
-export function formatDelta(d: { value: number; unit: Unit } | null): string {
-  if (!d || d.value === 0) return '─';
+function roundMetric(metric: Metric, value: number): number {
+  // est1rm is an estimate — half-kilo precision is plenty; volume is a whole-kg sum.
+  return metric === 'est1rm' ? Math.round(value * 2) / 2 : metric === 'volume' ? Math.round(value) : value;
+}
+
+/** Headline for a metric: last session's value (rounded per metric). */
+export function headlineFor(p: ExerciseProgress, metric: Metric): Measure {
+  if (metric === 'topSet') return p.headline;
+  const series = seriesFor(p, metric);
+  const last = [...series].reverse().find((s) => s.value != null)?.value ?? 0;
+  return { value: roundMetric(metric, last), unit: 'kg' };
+}
+
+/** Change on a metric vs the first session in range; null with fewer than two measured sessions. */
+export function deltaFor(p: ExerciseProgress, metric: Metric): Measure | null {
+  if (metric === 'topSet') return p.delta;
+  const measured = seriesFor(p, metric).filter((s) => s.value != null);
+  if (measured.length < 2) return null;
+  const first = measured[0].value as number;
+  const last = measured[measured.length - 1].value as number;
+  return { value: roundMetric(metric, last) - roundMetric(metric, first), unit: 'kg' };
+}
+
+export function formatHeadline(h: Measure): string {
+  return `${h.value} ${h.unit}`;
+}
+
+/** "▲ +10 kg" / "▼ −2.5 kg" / "±0 kg"; empty for a null (first-session) delta — callers label that case. */
+export function formatDelta(d: Measure | null): string {
+  if (!d) return '';
+  if (d.value === 0) return `±0 ${d.unit}`;
   const arrow = d.value > 0 ? '▲ +' : '▼ −';
-  const suffix = d.unit === 'reps' ? ' reps' : '';
-  return `${arrow}${Math.abs(d.value)}${suffix}`;
+  return `${arrow}${Math.abs(d.value)} ${d.unit}`;
+}
+
+/**
+ * One set-group in the Log notation: "40kg×8×4", "40kg×8" (single set), "12 reps × 3" when
+ * weightless — or "BW×12×3" when the caller wants weightless sets of a weighted exercise flagged.
+ */
+export function formatSetLine(s: SetLine, opts: { weightlessAs?: 'reps' | 'bw' } = {}): string {
+  const multi = s.sets != null && s.sets > 1 ? s.sets : null;
+  if (s.weightKg == null) {
+    if (s.reps == null) return '';
+    if (opts.weightlessAs === 'bw') return multi ? `BW×${s.reps}×${multi}` : `BW×${s.reps}`;
+    return multi ? `${s.reps} reps × ${multi}` : `${s.reps} reps`;
+  }
+  const base = s.reps != null ? `${s.weightKg}kg×${s.reps}` : `${s.weightKg}kg`;
+  return multi && s.reps != null ? `${base}×${multi}` : base;
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -190,7 +240,21 @@ export function relativeDay(date: string, today: string): string {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
-/** Short month label for chart axes, e.g. "Jun". */
-export function monthLabel(date: string): string {
-  return MONTHS[utc(date).getUTCMonth()];
+/** Short month label for chart axes, e.g. "Jun" — with a two-digit year ("Jun '26") when asked. */
+export function monthLabel(date: string, withYear = false): string {
+  const d = utc(date);
+  const m = MONTHS[d.getUTCMonth()];
+  return withYear ? `${m} '${String(d.getUTCFullYear()).slice(2)}` : m;
+}
+
+/** Short absolute date for lists: "Thu 1 Jul", or "Thu 1 Jul 2025" with the year. */
+export function formatShortDate(date: string, opts: { withYear: boolean }): string {
+  const d = utc(date);
+  const base = `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+  return opts.withYear ? `${base} ${d.getUTCFullYear()}` : base;
+}
+
+/** True when two ISO dates fall in different calendar years. */
+export function spansYears(from: string, to: string): boolean {
+  return from.slice(0, 4) !== to.slice(0, 4);
 }
