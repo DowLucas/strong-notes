@@ -15,3 +15,6 @@ SELECT * FROM muscle_map_entries WHERE exercise_id = $1;
 
 -- name: FindExistingExerciseIDs :many
 SELECT id FROM exercises WHERE id = ANY(sqlc.arg(ids)::text[]);
+
+-- name: GetExerciseNamesByIDs :many
+SELECT id, name FROM exercises WHERE id = ANY(sqlc.arg(ids)::text[]);

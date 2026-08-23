@@ -64,10 +64,9 @@ func (h *ExercisesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if len(req.Muscles) == 0 {
-		writeError(w, http.StatusBadRequest, "at least one muscle is required")
-		return
-	}
+	// An empty muscle list is allowed: the LLM guess is normalized against the
+	// muscle taxonomy and may legitimately end up with nothing recognised —
+	// that must not block the user from confirming the exercise itself.
 
 	// Dedupe muscles: a request like ["GLUTES","GLUTES"] should collapse to a
 	// single MuscleMapEntry per unique muscle, not one row per occurrence.

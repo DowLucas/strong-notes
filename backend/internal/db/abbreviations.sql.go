@@ -76,7 +76,7 @@ func (q *Queries) CreateAbbreviation(ctx context.Context, arg CreateAbbreviation
 }
 
 const findAbbreviationsForTokens = `-- name: FindAbbreviationsForTokens :many
-SELECT id, user_id, token, exercise_id, modifier_type, modifier_value, source, created_at FROM abbreviations WHERE user_id = $1 AND token = ANY($2::text[])
+SELECT id, user_id, token, exercise_id, modifier_type, modifier_value, source, created_at FROM abbreviations WHERE user_id = $1 AND UPPER(token) = ANY($2::text[])
 `
 
 type FindAbbreviationsForTokensParams struct {
@@ -84,6 +84,8 @@ type FindAbbreviationsForTokensParams struct {
 	Tokens []string `db:"tokens" json:"tokens"`
 }
 
+// tokens are passed canonical (upper-case); compare case-insensitively so
+// rows stored before canonicalisation still match.
 func (q *Queries) FindAbbreviationsForTokens(ctx context.Context, arg FindAbbreviationsForTokensParams) ([]Abbreviation, error) {
 	rows, err := q.db.Query(ctx, findAbbreviationsForTokens, arg.UserID, arg.Tokens)
 	if err != nil {
@@ -114,7 +116,7 @@ func (q *Queries) FindAbbreviationsForTokens(ctx context.Context, arg FindAbbrev
 }
 
 const getAbbreviationByUserAndToken = `-- name: GetAbbreviationByUserAndToken :one
-SELECT id, user_id, token, exercise_id, modifier_type, modifier_value, source, created_at FROM abbreviations WHERE user_id = $1 AND token = $2
+SELECT id, user_id, token, exercise_id, modifier_type, modifier_value, source, created_at FROM abbreviations WHERE user_id = $1 AND UPPER(token) = UPPER($2::text)
 `
 
 type GetAbbreviationByUserAndTokenParams struct {

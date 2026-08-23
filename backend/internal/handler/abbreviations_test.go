@@ -56,6 +56,73 @@ func TestAbbreviations_CreateAndList(t *testing.T) {
 	}
 }
 
+func TestAbbreviations_CreateIsCaseInsensitiveOnToken(t *testing.T) {
+	pool := testutil.SharedDB(t)
+	q := db.New(pool)
+	userID := ulid.New()
+	testutil.InsertTestUser(t, pool, userID, "abbrev-case-test@example.com")
+	h := NewAbbreviationsHandler(q)
+
+	create := func(body string) *httptest.ResponseRecorder {
+		req := withClaims(httptest.NewRequest(http.MethodPost, "/api/abbreviations", strings.NewReader(body)), userID)
+		w := httptest.NewRecorder()
+		h.Create(w, req)
+		return w
+	}
+	first := create(`{"token":"deadlifts","modifierType":"equipment","modifierValue":"x"}`)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first create: %d %s", first.Code, first.Body.String())
+	}
+	var created struct {
+		ID    string `json:"id"`
+		Token string `json:"token"`
+	}
+	json.Unmarshal(first.Body.Bytes(), &created)
+	if created.Token != "DEADLIFTS" {
+		t.Fatalf("token stored as %q, want canonical uppercase DEADLIFTS", created.Token)
+	}
+	// Same token in another case is the same abbreviation, not a second row.
+	second := create(`{"token":"Deadlifts","modifierType":"equipment","modifierValue":"x"}`)
+	var again struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(second.Body.Bytes(), &again)
+	if again.ID != created.ID {
+		t.Fatalf("expected idempotent create for differently-cased token, got ids %q vs %q", created.ID, again.ID)
+	}
+}
+
+func TestAbbreviations_ListIncludesExerciseName(t *testing.T) {
+	pool := testutil.SharedDB(t)
+	q := db.New(pool)
+	ctx := context.Background()
+	userID := ulid.New()
+	testutil.InsertTestUser(t, pool, userID, "abbrev-name-test@example.com")
+	h := NewAbbreviationsHandler(q)
+
+	exercise, err := q.CreateExercise(ctx, db.CreateExerciseParams{ID: ulid.New(), Name: "Barbell Deadlift", Category: "COMPOUND"})
+	if err != nil {
+		t.Fatalf("CreateExercise: %v", err)
+	}
+	if _, err := q.CreateAbbreviation(ctx, db.CreateAbbreviationParams{
+		ID: ulid.New(), UserID: userID, Token: "DEADLIFTS", ExerciseID: &exercise.ID, Source: "USER_ADDED",
+	}); err != nil {
+		t.Fatalf("CreateAbbreviation: %v", err)
+	}
+
+	listReq := withClaims(httptest.NewRequest(http.MethodGet, "/api/abbreviations", nil), userID)
+	listW := httptest.NewRecorder()
+	h.List(listW, listReq)
+	var list []struct {
+		Token        string  `json:"token"`
+		ExerciseName *string `json:"exerciseName"`
+	}
+	json.Unmarshal(listW.Body.Bytes(), &list)
+	if len(list) != 1 || list[0].ExerciseName == nil || *list[0].ExerciseName != "Barbell Deadlift" {
+		t.Fatalf("expected exerciseName Barbell Deadlift, got %+v", list)
+	}
+}
+
 func TestAbbreviations_ConfirmPending(t *testing.T) {
 	pool := testutil.SharedDB(t)
 	q := db.New(pool)

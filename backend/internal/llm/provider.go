@@ -8,8 +8,12 @@ import (
 )
 
 type LineGuess struct {
-	ExerciseName       string              `json:"exerciseName"`
-	Equipment          *string             `json:"equipment"`
+	ExerciseName string  `json:"exerciseName"`
+	Equipment    *string `json:"equipment"`
+	// EquipmentToken names the raw input token (e.g. "bb") that Equipment was
+	// inferred from, so the client can teach the dictionary that shorthand as
+	// an equipment modifier rather than binding it to the exercise.
+	EquipmentToken     *string             `json:"equipmentToken"`
 	WeightKg           *float64            `json:"weightKg"`
 	Reps               *int                `json:"reps"`
 	Sets               *int                `json:"sets"`

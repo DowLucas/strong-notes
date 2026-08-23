@@ -176,12 +176,27 @@ func TestCreateExercise_ValidationErrors(t *testing.T) {
 	q := db.New(pool)
 	h := NewExercisesHandler(q)
 
-	for _, body := range []string{`{"name":"","muscles":["GLUTES"]}`, `{"name":"Valid Name","muscles":[]}`} {
+	for _, body := range []string{`{"name":"","muscles":["GLUTES"]}`, `{"name":"Valid Name","muscles":["NOPE"]}`} {
 		req := httptest.NewRequest(http.MethodPost, "/api/exercises", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		h.Create(w, req)
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("body %q: expected 400, got %d", body, w.Code)
 		}
+	}
+}
+
+func TestCreateExercise_AllowsEmptyMuscles(t *testing.T) {
+	// The LLM guess is normalized against the taxonomy and may end up with no
+	// recognised muscle; confirming the exercise must still succeed.
+	pool := testutil.SharedDB(t)
+	q := db.New(pool)
+	h := NewExercisesHandler(q)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exercises", strings.NewReader(`{"name":"Unclassified Move","muscles":[]}`))
+	w := httptest.NewRecorder()
+	h.Create(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 }

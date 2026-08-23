@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/DowLucas/strong-notes-backend/internal/db"
 	"github.com/DowLucas/strong-notes-backend/internal/llm"
@@ -50,6 +51,15 @@ func (h *ResolveHandler) ResolveLine(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "llm resolve failed")
 		return
 	}
+	// Small local models sometimes answer with no exercise name at all; one
+	// retry is cheap and usually enough before falling back to a name built
+	// from the raw tokens (see NormalizeLineGuess).
+	if strings.TrimSpace(guess.ExerciseName) == "" {
+		if retry, rerr := h.provider.ResolveLine(r.Context(), req.Line, dictResult.UnresolvedTokens); rerr == nil {
+			guess = retry
+		}
+	}
+	guess = llm.NormalizeLineGuess(dictResult.UnresolvedTokens, guess)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"resolvedTokens":   dictResult.ResolvedTokens,
 		"unresolvedTokens": dictResult.UnresolvedTokens,

@@ -97,6 +97,35 @@ func (q *Queries) GetExerciseByName(ctx context.Context, name string) (Exercise,
 	return i, err
 }
 
+const getExerciseNamesByIDs = `-- name: GetExerciseNamesByIDs :many
+SELECT id, name FROM exercises WHERE id = ANY($1::text[])
+`
+
+type GetExerciseNamesByIDsRow struct {
+	ID   string `db:"id" json:"id"`
+	Name string `db:"name" json:"name"`
+}
+
+func (q *Queries) GetExerciseNamesByIDs(ctx context.Context, ids []string) ([]GetExerciseNamesByIDsRow, error) {
+	rows, err := q.db.Query(ctx, getExerciseNamesByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetExerciseNamesByIDsRow{}
+	for rows.Next() {
+		var i GetExerciseNamesByIDsRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMuscleMapForExercise = `-- name: GetMuscleMapForExercise :many
 SELECT id, exercise_id, muscle, role, weight FROM muscle_map_entries WHERE exercise_id = $1
 `
