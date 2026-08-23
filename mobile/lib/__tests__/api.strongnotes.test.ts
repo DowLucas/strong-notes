@@ -65,4 +65,32 @@ describe('ApiClient Strong Notes methods', () => {
     );
     expect(result.id).toBe('s1');
   });
+
+  it('deleteAbbreviation sends DELETE /api/abbreviations/{id}', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true, status: 204, headers: { get: () => null }, text: async () => '',
+    } as unknown as Response);
+    const client = createClient('http://localhost:8080', async () => 'test-token');
+
+    await expect(client.deleteAbbreviation('abc')).resolves.toBeUndefined();
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8080/api/abbreviations/abc',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('deleteAccount sends DELETE /api/me', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true, status: 204, headers: { get: () => null }, text: async () => '',
+    } as unknown as Response);
+    const client = createClient('http://localhost:8080', async () => 'test-token');
+
+    await expect(client.deleteAccount()).resolves.toBeUndefined();
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:8080/api/me',
+      expect.objectContaining({ method: 'DELETE', headers: expect.objectContaining({ Authorization: 'Bearer test-token' }) }),
+    );
+  });
 });

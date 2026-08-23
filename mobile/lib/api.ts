@@ -205,7 +205,8 @@ export interface ApiClient {
   appleNative(input: AppleNativeInput): Promise<TokenResponse>;
   getMe(): Promise<User>;
   updateMe(patch: UpdateMeInput): Promise<User>;
-  deleteMe(): Promise<void>;
+  /** Permanently delete the signed-in account (`DELETE /api/me`). */
+  deleteAccount(): Promise<void>;
   logout(): Promise<void>;
   uploadAvatar(imageBase64: string, mimeType: AvatarMimeType): Promise<AvatarUploadResponse>;
   deleteAvatar(): Promise<void>;
@@ -216,6 +217,7 @@ export interface ApiClient {
   listAbbreviations(): Promise<Abbreviation[]>;
   createAbbreviation(input: { token: string; exerciseId?: string; modifierType?: string; modifierValue?: string }): Promise<Abbreviation>;
   confirmAbbreviation(id: string): Promise<Abbreviation>;
+  deleteAbbreviation(id: string): Promise<void>;
   putSession(date: string, body: { notes?: string | null; entries: SetEntryInput[] }): Promise<SessionResponse>;
   getSessions(from: string, to: string): Promise<SessionResponse[]>;
   createGoal(input: { type: GoalType; description?: string; overrides?: { muscle: MuscleGroup; min: number; max: number }[] }): Promise<GoalResponse>;
@@ -299,7 +301,7 @@ export function createClient(baseUrl: string, getToken: GetToken, opts: ClientOp
     updateMe: (patch) =>
       request<User>('/api/me', { method: 'PATCH', body: JSON.stringify(patch) }),
 
-    deleteMe: () => request<void>('/api/me', { method: 'DELETE' }),
+    deleteAccount: () => request<void>('/api/me', { method: 'DELETE' }),
 
     logout: () => request<void>('/api/me/logout', { method: 'POST' }),
 
@@ -330,6 +332,8 @@ export function createClient(baseUrl: string, getToken: GetToken, opts: ClientOp
 
     confirmAbbreviation: (id) =>
       request<Abbreviation>(`/api/abbreviations/${id}/confirm`, { method: 'PATCH' }),
+
+    deleteAbbreviation: (id) => request<void>(`/api/abbreviations/${id}`, { method: 'DELETE' }),
 
     putSession: (date, body) =>
       request<SessionResponse>(`/api/sessions/${date}`, { method: 'PUT', body: JSON.stringify(body) }),
