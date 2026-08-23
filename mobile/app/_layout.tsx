@@ -43,6 +43,7 @@ export default function RootLayout() {
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="settings/about" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="exercise/[id]" options={{ animation: 'slide_from_right' }} />
         </Stack>
         <StatusBar style="dark" />
         <AppAlertHost />
