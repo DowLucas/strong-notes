@@ -1,7 +1,11 @@
 // __tests__/components/EntryPopover.test.tsx
+import '@/lib/i18n';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { EntryPopover } from '@/src/components/EntryPopover';
 import type { ScannedEntry } from '@/src/parsing/scanNote';
+
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({ router: { push: (...a: unknown[]) => mockPush(...a) } }));
 
 function entry(overrides: Partial<ScannedEntry>): ScannedEntry {
   return {
@@ -78,5 +82,20 @@ describe('EntryPopover', () => {
     await fireEvent.changeText(screen.getByPlaceholderText('Or type your own…'), 'Ankle Strap');
     await fireEvent.press(screen.getByText('Save'));
     expect(onConfirm).toHaveBeenCalledWith([e], 'Ankle Strap');
+  });
+
+  it('offers "View progress" for a resolved group and navigates to the exercise', async () => {
+    const onClose = jest.fn();
+    await render(
+      <EntryPopover entries={[entry({ status: 'resolved', exerciseId: 'ex-1' })]} onConfirm={jest.fn()} onClose={onClose} />,
+    );
+    await fireEvent.press(screen.getByText('View progress ›'));
+    expect(onClose).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/exercise/[id]', params: { id: 'ex-1' } });
+  });
+
+  it('does not offer "View progress" for an unconfirmed group', async () => {
+    await render(<EntryPopover entries={[entry({ status: 'needs-confirm' })]} onConfirm={jest.fn()} onClose={jest.fn()} />);
+    expect(screen.queryByText('View progress ›')).toBeNull();
   });
 });

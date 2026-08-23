@@ -1,6 +1,8 @@
 // src/components/EntryPopover.tsx
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
+import { router } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { colors, spacing, typography } from '@/lib/theme';
 import type { ScannedEntry } from '../parsing/scanNote';
 
@@ -27,6 +29,13 @@ export function EntryPopover({
   const title = first.exerciseName ?? first.rawText;
   const needsConfirm = first.status === 'needs-confirm';
   const clarifyingQuestion = first.clarifyingQuestion;
+  const { t } = useTranslation();
+  const canViewProgress = first.status === 'resolved' && !!first.exerciseId;
+
+  function viewProgress() {
+    onClose();
+    router.push({ pathname: '/exercise/[id]', params: { id: first.exerciseId! } });
+  }
 
   return (
     <View style={styles.card}>
@@ -80,6 +89,12 @@ export function EntryPopover({
         </Pressable>
       ) : null}
 
+      {canViewProgress ? (
+        <Pressable onPress={viewProgress} style={styles.linkBtn} accessibilityRole="button">
+          <Text style={styles.linkLabel}>{t('log.viewProgress')}</Text>
+        </Pressable>
+      ) : null}
+
       <Pressable onPress={onClose} style={styles.closeBtn} accessibilityRole="button">
         <Text style={styles.closeLabel}>Close</Text>
       </Pressable>
@@ -122,6 +137,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   confirmLabel: { ...typography.bodyEmphasis, color: colors.fgOnAccent },
+  linkBtn: { paddingVertical: spacing.s2 },
+  linkLabel: { ...typography.bodyEmphasis, color: colors.moss },
   closeBtn: { alignItems: 'center', paddingVertical: spacing.s1 },
   closeLabel: { ...typography.monoCaption, color: colors.lead },
 });
