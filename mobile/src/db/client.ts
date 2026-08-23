@@ -57,6 +57,25 @@ async function addColumnIfMissing(
   }
 }
 
+// All write transactions go through one queue. expo-sqlite's
+// withTransactionAsync cannot overlap on a single connection ("cannot start a
+// transaction within a transaction"), and several writers run concurrently in
+// the app: the editor's debounced save, the auto-sync's cache refresh, confirm.
+let writeChain: Promise<unknown> = Promise.resolve();
+
+export function withWriteTransaction<T>(task: (db: SQLite.SQLiteDatabase) => Promise<T>): Promise<T> {
+  const run = writeChain.then(async () => {
+    const db = await getDb();
+    let result!: T;
+    await db.withTransactionAsync(async () => {
+      result = await task(db);
+    });
+    return result;
+  });
+  writeChain = run.catch(() => undefined);
+  return run;
+}
+
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = (async () => {
@@ -73,5 +92,6 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
 // in-memory database. So dropping our own memoized promise is enough to
 // give each test a clean database; there's no shim-side registry to clear.
 export function resetDbForTests() {
+  writeChain = Promise.resolve();
   dbPromise = null;
 }

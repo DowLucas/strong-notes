@@ -70,7 +70,15 @@ class SQLiteDatabase {
   }
 
   async withTransactionAsync(task) {
-    await task();
+    // Mirror the native behaviour: a transaction cannot start while another
+    // one is open on the same connection.
+    if (this._inTransaction) throw new Error('cannot start a transaction within a transaction');
+    this._inTransaction = true;
+    try {
+      await task();
+    } finally {
+      this._inTransaction = false;
+    }
   }
 
   async withExclusiveTransactionAsync(task) {

@@ -152,14 +152,21 @@ export default function LogScreen() {
         setOffline(false);
         setError((e) => (e?.kind === 'network' ? null : e));
       }
-      await persist(noteText, scanned);
-      setError((e) => (e?.kind === 'saveLocal' ? null : e));
-    } catch {
+      try {
+        await persist(noteText, scanned);
+        setError((e) => (e?.kind === 'saveLocal' ? null : e));
+      } catch (err) {
+        if (generation !== scanGenerationRef.current) return;
+        if (__DEV__) console.warn('[log] local save failed', err);
+        setError({ kind: 'saveLocal' });
+      }
+    } catch (err) {
       if (generation !== scanGenerationRef.current) return;
-      // scanNote itself never rejects on a bad line; reaching here means the
-      // local persist failed. The text is already in the DB from the fast
-      // timer (if that worked), so say what's actually wrong.
-      setError({ kind: 'saveLocal' });
+      // scanNote swallows per-line resolver failures, so an exception here is
+      // a genuine bug (e.g. a parser edge case on some line). Don't blame the
+      // local save for it — keep the note, show the network strip and log.
+      if (__DEV__) console.warn('[log] scan failed', err);
+      setError({ kind: 'network' });
     } finally {
       if (generation === scanGenerationRef.current) setScanning(false);
     }
@@ -201,7 +208,10 @@ export default function LogScreen() {
           setError((e) => (e?.kind === 'saveLocal' ? null : e));
           toast.show(t('log.saved'));
         },
-        () => setError({ kind: 'saveLocal' }),
+        (err) => {
+          if (__DEV__) console.warn('[log] local save failed', err);
+          setError({ kind: 'saveLocal' });
+        },
       );
     });
     return () => sub.remove();
@@ -252,7 +262,10 @@ export default function LogScreen() {
       // Fast path: never lose the raw note text, even if scanning lags/fails.
       persist(next, entriesRef.current).then(
         () => setError((e) => (e?.kind === 'saveLocal' ? null : e)),
-        () => setError({ kind: 'saveLocal' }),
+        (err) => {
+          if (__DEV__) console.warn('[log] local save failed', err);
+          setError({ kind: 'saveLocal' });
+        },
       );
     }, PERSIST_DELAY_MS);
 

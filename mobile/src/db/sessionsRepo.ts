@@ -1,4 +1,4 @@
-import { getDb } from './client';
+import { getDb, withWriteTransaction } from './client';
 import type { ExerciseHistory } from '@/lib/priorHistory';
 
 export type LocalSetEntry = {
@@ -24,8 +24,7 @@ export type LocalSession = {
 };
 
 export async function upsertLocalSession(session: LocalSession): Promise<void> {
-  const db = await getDb();
-  await db.withTransactionAsync(async () => {
+  await withWriteTransaction(async (db) => {
     await db.runAsync(
       `INSERT INTO sessions (date, notes, synced) VALUES (?, ?, ?)
        ON CONFLICT(date) DO UPDATE SET notes = excluded.notes, synced = excluded.synced`,

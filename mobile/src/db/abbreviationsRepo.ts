@@ -1,9 +1,8 @@
-import { getDb } from './client';
+import { getDb, withWriteTransaction } from './client';
 import type { Abbreviation } from '@/lib/api';
 
 export async function cacheAbbreviations(abbreviations: Abbreviation[]): Promise<void> {
-  const db = await getDb();
-  await db.withTransactionAsync(async () => {
+  await withWriteTransaction(async (db) => {
     await db.runAsync(`DELETE FROM abbreviations_cache`);
     for (const a of abbreviations) {
       await db.runAsync(
@@ -22,8 +21,7 @@ export async function cacheAbbreviations(abbreviations: Abbreviation[]): Promise
  */
 export async function upsertCachedAbbreviations(abbreviations: Abbreviation[]): Promise<void> {
   if (abbreviations.length === 0) return;
-  const db = await getDb();
-  await db.withTransactionAsync(async () => {
+  await withWriteTransaction(async (db) => {
     for (const a of abbreviations) {
       await db.runAsync(`DELETE FROM abbreviations_cache WHERE UPPER(token) = UPPER(?)`, [a.token]);
       await db.runAsync(
