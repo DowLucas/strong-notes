@@ -1,0 +1,61 @@
+# Production stack for Lurkhuset (/opt/stacks/strong-notes-api).
+#
+# Conventions (see the homelab docs): the API image comes from GHCR and is
+# auto-updated by Watchtower via the enable label; Postgres data lives on the
+# ZFS dataset /tank/apps/strong-notes/pgdata (bind mount, never a named
+# volume); Caddy reaches the API by container name on the external caddy-net
+# bridge (strong-notes-api.lurkhuset.com -> strong-notes-backend:8080).
+#
+# Secrets live in ./.env next to this file (gitignored on the server):
+#   POSTGRES_PASSWORD, JWT_SECRET, GEMINI_API_KEY, SMTP_*, DEMO_LOGIN_EMAILS, …
+name: strong-notes
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: strong-notes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: strongnotes
+      POSTGRES_USER: strongnotes
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - /tank/apps/strong-notes/pgdata:/var/lib/postgresql/data
+    networks:
+      - strong-notes-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U strongnotes -d strongnotes"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - apparmor:unconfined
+
+  backend:
+    image: ghcr.io/dowlucas/strong-notes-backend:latest
+    container_name: strong-notes-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      ADDR: ":8080"
+      DATABASE_URL: postgres://strongnotes:${POSTGRES_PASSWORD}@strong-notes-postgres:5432/strongnotes?sslmode=disable
+    networks:
+      - strong-notes-net
+      - caddy-net
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8080/api/health/liveness"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  strong-notes-net:
+    driver: bridge
+  caddy-net:
+    external: true

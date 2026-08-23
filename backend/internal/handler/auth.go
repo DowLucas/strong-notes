@@ -224,31 +224,48 @@ func (h *AuthHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.queries.GetUserByEmail(r.Context(), row.Email)
-	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusInternalServerError, "user lookup failed")
-			return
-		}
-		user, err = h.queries.UpsertUser(r.Context(), db.UpsertUserParams{
-			ID:          ulid.New(),
-			Email:       row.Email,
-			DisplayName: "",
-			Locale:      "en",
-		})
-		if err != nil {
-			slog.Error("verify: upsert user failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "user create failed")
-			return
-		}
+	user, ok := lookupOrCreateUser(w, r, h.queries, row.Email, "")
+	if !ok {
+		return
 	}
+	writeSessionToken(w, h.jwt, h.cfg, user)
+}
 
-	jwtStr, err := h.jwt.Sign(user.ID, user.Email, h.cfg.InstanceMode)
+// lookupOrCreateUser returns the user for email, creating it (with the given
+// display name) on first sign-in. Existing users are never modified, so a
+// caller-supplied name only lands on a brand-new account. On failure it has
+// already written the error response and returns ok=false.
+func lookupOrCreateUser(w http.ResponseWriter, r *http.Request, q *db.Queries, email, displayName string) (db.User, bool) {
+	user, err := q.GetUserByEmail(r.Context(), email)
+	if err == nil {
+		return user, true
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "user lookup failed")
+		return db.User{}, false
+	}
+	user, err = q.UpsertUser(r.Context(), db.UpsertUserParams{
+		ID:          ulid.New(),
+		Email:       email,
+		DisplayName: displayName,
+		Locale:      "en",
+	})
+	if err != nil {
+		slog.Error("auth: upsert user failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "user create failed")
+		return db.User{}, false
+	}
+	return user, true
+}
+
+// writeSessionToken signs a session JWT for user and writes the shared
+// {token, user} response every sign-in flow (magic link, Apple) returns.
+func writeSessionToken(w http.ResponseWriter, jwt *auth.JWTService, cfg *config.Config, user db.User) {
+	jwtStr, err := jwt.Sign(user.ID, user.Email, cfg.InstanceMode)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to sign token")
 		return
 	}
-
 	writeJSON(w, http.StatusOK, tokenResponse{Token: jwtStr, User: userToResponse(user)})
 }
 

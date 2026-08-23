@@ -1,10 +1,13 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -57,6 +60,23 @@ func New(cfg *config.Config, pool *pgxpool.Pool, queries *db.Queries, jwtSvc *au
 		r.Use(middleware.AuthRateLimit(30, 5))
 		r.Post("/api/auth/magic-link", authH.MagicLink)
 		r.Post("/api/auth/verify", authH.Verify)
+
+		// Native Sign in with Apple only mounts when APPLE_BUNDLE_ID is set.
+		// Discovery failure is logged, not fatal: a blip at Apple's JWKS
+		// endpoint must never keep the whole API from booting.
+		if cfg.HasApple() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			appleH, err := handler.NewAppleAuthHandler(ctx, queries, cfg, jwtSvc)
+			if err != nil {
+				slog.Error("apple auth: disabled, failed to init handler", "error", err)
+			} else {
+				r.Post("/api/auth/apple/native", appleH.Native)
+				slog.Info("apple auth: enabled", "bundle_id", cfg.AppleBundleID)
+			}
+		} else {
+			slog.Info("apple auth: disabled (APPLE_BUNDLE_ID not set)")
+		}
 	})
 
 	// Authenticated routes. The protocol-version middleware runs here (not on

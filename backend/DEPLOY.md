@@ -1,62 +1,71 @@
-# Deploying to Proxmox
+# Deploying the API (Lurkhuset)
 
-This deploys the self-contained stack from `docker-compose.yml` (backend +
-Postgres, both on the host network). S3 storage and River background jobs
-stay disabled per the project's constraints — `S3_ENDPOINT` and
-`JOBS_ENABLED` are left unset/false, so there's nothing to provision for them.
+Production runs on the Proxmox host as `/opt/stacks/strong-notes-api`, following
+the same conventions as the other stacks there:
 
-1. `ssh proxmox`
-2. `sudo zfs create tank/apps/strong-notes` then `sudo chown -R 999:999 /tank/apps/strong-notes` (the official `postgres` image runs as UID 999)
-3. `mkdir -p /opt/stacks/strong-notes-api`, copy this repo's `backend/` there (or `git clone`)
-4. Create `/opt/stacks/strong-notes-api/.env.local` (copy `.env.example` as a starting point) and set at minimum:
-   - `DATABASE_URL=postgres://strongnotes:<same-password-as-below>@localhost:5432/strongnotes?sslmode=disable` (the `postgres` service listens on the default port 5432 via `network_mode: host`)
-   - `POSTGRES_PASSWORD=<random>` (consumed by `docker-compose.yml`, must match the password embedded in `DATABASE_URL` above)
-   - `POSTGRES_DATA_DIR=/tank/apps/strong-notes/pgdata` (bind-mounts Postgres's data dir onto the ZFS dataset from step 2 instead of an anonymous Docker volume, so `docker compose down -v` can't wipe it and it's covered by normal ZFS backup/snapshot policy)
-   - `JWT_SECRET=<32+ random chars>`
-   - `DEV_MODE=false`
-   - `DEMO_LOGIN_EMAILS=<your real email>` (lets you sign in via inline magic-link token before real email delivery is confirmed working)
-   - `LLM_PROVIDER=anthropic`
-   - `ANTHROPIC_API_KEY=<key>`
-   - Leave `S3_ENDPOINT=` and `JOBS_ENABLED=false` as shipped — both features are out of scope for this deploy.
-5. `cd /opt/stacks/strong-notes-api && sudo docker compose --env-file .env.local up -d --build`
+- **Image**: `ghcr.io/dowlucas/strong-notes-backend:latest`, built and pushed by
+  `.github/workflows/backend-image.yml` on every push to `main` that touches
+  `backend/`. Nothing is built on the server.
+- **Auto-deploy**: the backend container carries
+  `com.centurylinklabs.watchtower.enable=true`; the host's Watchtower polls GHCR
+  every 5 minutes and restarts the container on a new `latest`. Rolling out =
+  merge to `main`, wait ≤ 5 min.
+- **Compose**: `backend/deploy/docker-compose.yml` (copy of what lives in
+  `/opt/stacks/strong-notes-api/docker-compose.yml`). Postgres 16 with its data
+  bind-mounted on the ZFS dataset `/tank/apps/strong-notes/pgdata`; the API joins
+  the external `caddy-net` bridge.
+- **Ingress**: Caddy block `strong-notes-api.lurkhuset.com → strong-notes-backend:8080`
+  (TLS via DNS-01), and a proxied Cloudflare CNAME to the existing tunnel so the
+  API is reachable publicly (TestFlight testers are not on the tailnet).
+- **Secrets**: `/opt/stacks/strong-notes-api/.env` (mode 600, never committed).
 
-   The `--env-file` flag is required here: `env_file: .env.local` in
-   `docker-compose.yml` only injects vars into the *backend container's*
-   runtime environment, but `${POSTGRES_PASSWORD}` / `${POSTGRES_DATA_DIR}`
-   are substituted into the compose file itself at parse time, which Compose
-   only does from the shell environment or an explicit `--env-file` — never
-   from a service's `env_file:`. Omitting the flag silently defaults
-   `POSTGRES_PASSWORD` to an empty string and `POSTGRES_DATA_DIR` to
-   `./.pgdata`.
-6. Migrations run automatically on backend startup (`runMigrations` in `cmd/api/main.go`) — no manual migration step needed.
-7. Append to `/opt/stacks/caddy/Caddyfile`:
-   ```
-   strong-notes-api.lurkhuset.com {
-       reverse_proxy localhost:8080
-   }
-   ```
-8. `sudo docker exec caddy-caddy-1 caddy reload --config /etc/caddy/Caddyfile`
-9. Verify: `curl -fsS https://strong-notes-api.lurkhuset.com/api/health/liveness`
-10. Add an Uptime Kuma monitor for that URL.
+Migrations run automatically on backend startup (`runMigrations` in `cmd/api/main.go`).
 
-## Notes
+## First-time provisioning (already done — kept for reference)
 
-- Since `DEV_MODE=false` here, magic-link sign-in requires `RESEND_API_KEY` or
-  `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS` to be set too — add whichever
-  email delivery method you choose alongside the vars above. `DEMO_LOGIN_EMAILS`
-  only affects mode-agnostic inline-token delivery for the listed addresses; it
-  doesn't replace real email config for everyone else.
-- Both containers run with `network_mode: host`, so `docker compose` port
-  mappings don't apply — the backend binds directly to `:8080` (from `ADDR`)
-  and Postgres to its default `:5432` on the host's loopback/network
-  interfaces. Make sure nothing else on the box already owns those ports.
-- Postgres data lives at `POSTGRES_DATA_DIR` (`/tank/apps/strong-notes/pgdata`
-  in this deploy), bind-mounted into the `postgres` service, so it survives
-  `docker compose down` / container recreation and isn't at risk from a
-  stray `-v` flag. Back that path up like any other stateful ZFS dataset.
-  If `POSTGRES_DATA_DIR` is unset, Compose falls back to `./.pgdata` next to
-  the compose file — fine for a laptop, not for this deploy.
-- To roll out a new version: `git pull && sudo docker compose --env-file .env.local up -d --build`.
-  The backend's healthcheck (`/api/health/liveness`) gates Compose's own
-  `service_healthy` semantics if you chain this stack behind another that
-  depends on it.
+```bash
+ssh proxmox
+sudo zfs create tank/apps/strong-notes && sudo zfs create tank/apps/strong-notes/pgdata
+sudo chown -R 999:999 /tank/apps/strong-notes/pgdata          # postgres image runs as 999
+sudo mkdir -p /opt/stacks/strong-notes-api
+# copy backend/deploy/docker-compose.yml there, create .env (see below)
+cd /opt/stacks/strong-notes-api && sudo docker compose up -d
+# Caddy: append the block to /opt/stacks/caddy/Caddyfile, then
+sudo docker exec caddy-caddy-1 caddy reload --config /etc/caddy/Caddyfile
+# Cloudflare: proxied CNAME strong-notes-api → <tunnel-id>.cfargotunnel.com
+curl -fsS https://strong-notes-api.lurkhuset.com/api/health/liveness
+```
+
+Then add an Uptime Kuma HTTP monitor for that URL (https://uptime.lurkhuset.com).
+
+### `.env` — set at minimum
+
+- `INSTANCE_MODE=selfhost`, `BASE_URL=https://strong-notes-api.lurkhuset.com`, `DEV_MODE=false`
+- `POSTGRES_PASSWORD=<random>` — compose derives `DATABASE_URL` from it
+- `JWT_SECRET=<32+ random chars>`
+- `LLM_PROVIDER=gemini`, `GEMINI_API_KEY=<key>` (`GEMINI_MODEL` optional)
+- `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_FROM` — magic-link email
+  (`DEV_MODE=false` requires a real transport)
+- `APPLE_BUNDLE_ID=com.dowlucas.strongnotes` — enables `POST /api/auth/apple/native`
+- `DEMO_LOGIN_EMAILS=<your email>` — inline magic-link token for these addresses
+- Leave `S3_ENDPOINT=` empty and `JOBS_ENABLED=false` (features out of scope)
+
+## Day-2 operations
+
+```bash
+# status / logs
+cd /opt/stacks/strong-notes-api && sudo docker compose ps && sudo docker logs -f strong-notes-backend
+# force an update without waiting for Watchtower
+sudo docker compose pull && sudo docker compose up -d
+# Postgres shell
+sudo docker exec -it strong-notes-postgres psql -U strongnotes -d strongnotes
+```
+
+Backups: `/tank/apps/strong-notes` is a ZFS dataset — cover it with the same
+snapshot/backup policy as the other `tank/apps/*` datasets.
+
+## Local development
+
+`docker compose --env-file .env.local up -d --build` in `backend/` still runs a
+self-contained dev stack (see `docker-compose.yml`; this machine's
+`docker-compose.override.yml` moves Postgres to 5433).

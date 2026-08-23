@@ -70,6 +70,11 @@ type Config struct {
 	// River tables present; flip on once the schema has rolled out.
 	JobsEnabled bool
 
+	// AppleBundleID is the iOS app's bundle identifier, used as the expected
+	// audience when verifying Sign in with Apple identity tokens. Empty
+	// (default) disables the /api/auth/apple/native route entirely.
+	AppleBundleID string
+
 	// LLM (shorthand/goal resolution fallback)
 	LLMProvider     string // "ollama" | "anthropic" | "gemini"
 	OllamaURL       string
@@ -113,6 +118,8 @@ func Load() (*Config, error) {
 		MaxAppProtocol: getEnvInt("MAX_APP_PROTOCOL", 1),
 
 		JobsEnabled: getEnv("JOBS_ENABLED", "") == "true" || getEnv("JOBS_ENABLED", "") == "1",
+
+		AppleBundleID: getEnv("APPLE_BUNDLE_ID", ""),
 
 		LLMProvider:     getEnv("LLM_PROVIDER", "ollama"),
 		OllamaURL:       getEnv("OLLAMA_URL", "http://localhost:11434"),
@@ -162,6 +169,9 @@ func (c *Config) validate() error {
 
 func (c *Config) IsHosted() bool   { return c.InstanceMode == "hosted" }
 func (c *Config) IsSelfHost() bool { return c.InstanceMode == "selfhost" }
+
+// HasApple reports whether native Sign in with Apple is configured.
+func (c *Config) HasApple() bool { return c.AppleBundleID != "" }
 
 // IsDemoLogin reports whether addr is on the demo-login allowlist (case
 // insensitive). addr is expected already trimmed; comparison lowercases both
