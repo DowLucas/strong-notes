@@ -133,7 +133,11 @@ export async function parseQuickEntryLine(api: ApiClient, line: string): Promise
     const equipment = response.llmGuess.equipment ?? undefined;
     const equipmentToken = (equipment && response.llmGuess.equipmentToken) || undefined;
     const nonExerciseTokens = new Set(
-      [clarifyingQuestion?.token, equipmentToken].filter((t): t is string => Boolean(t)).map((t) => t.toUpperCase()),
+      // A modifier question's token ("As") isn't part of the exercise name; an
+      // exercise-kind question's token ("pc") IS the exercise token.
+      [clarifyingQuestion?.kind !== 'exercise' ? clarifyingQuestion?.token : undefined, equipmentToken]
+        .filter((t): t is string => Boolean(t))
+        .map((t) => t.toUpperCase()),
     );
     const exerciseTokens = unresolvedTokens.filter((t) => !nonExerciseTokens.has(t.toUpperCase()));
     const llmNumeric = {

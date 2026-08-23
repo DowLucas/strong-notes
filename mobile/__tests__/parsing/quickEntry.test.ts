@@ -201,6 +201,25 @@ describe('parseQuickEntryLine', () => {
     expect(result.exerciseTokens).toEqual(['romanian', 'dl']);
   });
 
+  it('keeps the questioned token as the exercise token when the question is about the exercise itself', async () => {
+    const api = fakeApi({
+      resolveLine: jest.fn().mockResolvedValue({
+        resolvedTokens: [],
+        unresolvedTokens: ['pc'],
+        llmGuess: {
+          exerciseName: 'Power Clean',
+          muscles: ['BACK', 'QUADS'],
+          clarifyingQuestion: { kind: 'exercise', token: 'pc', question: 'Did you mean…?', alternatives: ['Power Clean', 'Preacher Curl'] },
+        },
+      }),
+    });
+    const result = await parseQuickEntryLine(api, 'pc 60kg 3x3');
+    expect(result.status).toBe('needs-confirm');
+    expect(result.exerciseTokens).toEqual(['pc']);
+    expect(result.unresolvedToken).toBe('pc');
+    expect(result.clarifyingQuestion?.kind).toBe('exercise');
+  });
+
   it('falls back to unresolvedTokens[0] when there is no clarifying question (unchanged behavior)', async () => {
     const api = fakeApi({
       resolveLine: jest.fn().mockResolvedValue({

@@ -349,6 +349,35 @@ describe('LogScreen (notes-style)', () => {
     });
   });
 
+  it('answers a "did you mean" (exercise-kind) question: the answer replaces the name and the token is bound once', async () => {
+    mockResolveLine.mockReset().mockResolvedValue({
+      resolvedTokens: [],
+      unresolvedTokens: ['pc'],
+      llmGuess: {
+        exerciseName: 'Power Clean',
+        muscles: ['BACK', 'QUADS'],
+        clarifyingQuestion: { kind: 'exercise', token: 'pc', question: 'Did you mean…?', alternatives: ['Power Clean', 'Preacher Curl'] },
+      },
+    });
+    const createExercise = jest.fn().mockResolvedValue({ id: 'ex-pc', name: 'Preacher Curl', category: 'ISOLATION', createdAt: '' });
+    const createAbbreviation = jest.fn().mockResolvedValue({});
+    (useAuth as jest.Mock).mockReturnValue({ api: { resolveLine: mockResolveLine, createExercise, createAbbreviation } });
+
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('Start typing your workout…');
+    await fireEvent.changeText(input, 'pc 60kg 3x3');
+    await waitFor(() => expect(screen.getByText('pc 60kg 3x3').props.pointerEvents).toBe('auto'), { timeout: 3000 });
+    await fireEvent.press(screen.getByLabelText('Confirm Power Clean'));
+    await waitFor(() => expect(screen.getByText('Did you mean…?')).toBeTruthy());
+    await fireEvent.press(screen.getByText('Preacher Curl'));
+
+    await waitFor(() => {
+      expect(createExercise).toHaveBeenCalledWith({ name: 'Preacher Curl', muscles: ['BACK', 'QUADS'] });
+      expect(createAbbreviation).toHaveBeenCalledTimes(1);
+      expect(createAbbreviation).toHaveBeenCalledWith({ token: 'pc', exerciseId: 'ex-pc' });
+    });
+  });
+
   it('confirms a clarifying-question answer: merges it into the exercise name and binds both tokens', async () => {
     mockResolveLine.mockReset().mockResolvedValue({
       resolvedTokens: [],

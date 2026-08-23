@@ -232,14 +232,22 @@ export default function LogScreen() {
       // the exercise's own name, and its token gets its own dictionary entry
       // pointing at the same exercise — alongside the exercise-name token
       // (first.unresolvedToken) already bound below.
-      const finalName = modifierValue ? `${modifierValue} ${first.exerciseName}` : first.exerciseName!;
+      // A clarifying answer either replaces the name ("Did you mean…?" about
+      // the exercise itself) or is woven in front of it (a qualifier like
+      // "Assisted").
+      const isExerciseQuestion = first.clarifyingQuestion?.kind === 'exercise';
+      const finalName = modifierValue
+        ? isExerciseQuestion
+          ? modifierValue
+          : `${modifierValue} ${first.exerciseName}`
+        : first.exerciseName!;
       const exercise = await api.createExercise({ name: finalName, muscles: first.muscles ?? [] });
       // Every token that names the exercise is bound to it ("shoulder" AND
       // "rotation"), otherwise the next scan finds the leftovers unresolved
       // and asks the LLM — and the user — all over again. An equipment-only
       // line ("bb 30kg") has no name token, so nothing gets aliased here.
       const exerciseTokens = [...(first.exerciseTokens ?? (first.unresolvedToken ? [first.unresolvedToken] : []))];
-      if (modifierValue && first.clarifyingQuestion) exerciseTokens.push(first.clarifyingQuestion.token);
+      if (modifierValue && first.clarifyingQuestion && !isExerciseQuestion) exerciseTokens.push(first.clarifyingQuestion.token);
       const created: Abbreviation[] = [];
       for (const token of exerciseTokens) {
         created.push(await api.createAbbreviation({ token, exerciseId: exercise.id }));

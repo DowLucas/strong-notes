@@ -104,6 +104,8 @@ export interface ResolvedToken {
 }
 
 export interface ClarifyingQuestion {
+  /** "modifier": the answer is prefixed to the exercise name. "exercise": the answer replaces it. Defaults to modifier. */
+  kind?: 'modifier' | 'exercise';
   token: string;
   question: string;
   alternatives: string[];
