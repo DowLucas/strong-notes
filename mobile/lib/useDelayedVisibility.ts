@@ -34,7 +34,11 @@ export function useDelayedVisibility(
       }, delayMs);
       return () => clearTimeout(timer);
     }
-    const remaining = Math.max(0, minVisibleMs - (Date.now() - shownAt.current));
+    // Date.now() is not monotonic. A backwards clock correction makes the
+    // elapsed time negative, which would otherwise extend the hold by the
+    // size of the jump, so cap it at the hold itself.
+    const elapsed = Date.now() - shownAt.current;
+    const remaining = Math.min(minVisibleMs, Math.max(0, minVisibleMs - elapsed));
     const timer = setTimeout(() => setVisible(false), remaining);
     return () => clearTimeout(timer);
   }, [active, visible, delayMs, minVisibleMs]);

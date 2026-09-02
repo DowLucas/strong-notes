@@ -76,3 +76,21 @@ describe('shiftSpans', () => {
     expect(shiftSpans([nameOnly], prev, prev + 'x')).toEqual([nameOnly]);
   });
 });
+
+describe('shiftSpans identity', () => {
+  const prev = 'Bench 60kg 8x3\nRDL';
+  const rdl = { id: 'rdl', spanStart: 15, spanEnd: 18 };
+
+  it('returns the same array when an equal-length edit leaves every offset alone', () => {
+    // Typing over a selection, or a keyboard replacing a word with one of the
+    // same length, moves nothing. Cloning the entries anyway re-renders the
+    // editor and re-runs every entry-keyed effect on each keystroke.
+    const items = [rdl];
+    expect(shiftSpans(items, prev, 'Bench 65kg 8x3\nRDL')).toBe(items);
+  });
+
+  it('still shifts when the length actually changes', () => {
+    const items = [rdl];
+    expect(shiftSpans(items, prev, 'Bench 605kg 8x3\nRDL')).not.toBe(items);
+  });
+});

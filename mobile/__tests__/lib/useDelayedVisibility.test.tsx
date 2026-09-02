@@ -79,3 +79,35 @@ describe('useDelayedVisibility', () => {
     expect(result.current).toBe(false);
   });
 });
+
+describe('useDelayedVisibility clock safety', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('hides on time even if the clock jumps backwards', async () => {
+    // Date.now() is not monotonic: an NTP correction between showing and
+    // hiding makes the elapsed time negative, which must not extend the hold.
+    const realNow = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(realNow);
+
+    const { result, rerender } = await renderHook(
+      ({ active }: { active: boolean }) => useDelayedVisibility(active, OPTS),
+      { initialProps: { active: true } },
+    );
+    await act(async () => {
+      jest.advanceTimersByTime(350);
+    });
+    expect(result.current).toBe(true);
+
+    // Clock jumps back 10 minutes, then the scan finishes.
+    nowSpy.mockReturnValue(realNow - 600_000);
+    await rerender({ active: false });
+    await act(async () => {
+      jest.advanceTimersByTime(OPTS.minVisibleMs);
+    });
+    expect(result.current).toBe(false);
+  });
+});

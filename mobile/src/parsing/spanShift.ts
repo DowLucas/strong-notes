@@ -36,6 +36,10 @@ export function shiftSpans<T extends Spanned>(items: T[], prev: string, next: st
     const s = item.spanStart;
     const e = item.spanEnd;
     if (s == null || e == null || e <= start) return item;
+    // An equal-length edit (typing over a selection, a keyboard swapping in a
+    // same-length word) moves no offset. Returning a clone anyway would mark
+    // the array changed and re-run every entry-keyed effect per keystroke.
+    if (delta === 0 && (s >= prevEnd || (s <= start && prevEnd <= e))) return item;
     changed = true;
     if (s >= prevEnd) return { ...item, spanStart: s + delta, spanEnd: e + delta };
     if (s <= start && prevEnd <= e && e + delta > s) return { ...item, spanEnd: e + delta };

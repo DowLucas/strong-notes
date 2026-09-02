@@ -6,6 +6,10 @@
  * bottom edge and the keyboard's top edge in window coordinates.
  */
 export function keyboardOverlap(editorBottomY: number, keyboardTopY: number): number {
+  // measureInWindow can report non-numeric geometry for a view that detached
+  // between the keyboard event and the async callback. NaN here would reach
+  // paddingBottom and scrollTo, and Android throws on a NaN style value.
+  if (!Number.isFinite(editorBottomY) || !Number.isFinite(keyboardTopY)) return 0;
   return Math.max(0, editorBottomY - keyboardTopY);
 }
 
@@ -21,6 +25,14 @@ export function caretScrollTarget(input: {
   hiddenBottom: number;
   margin: number;
 }): number | null {
+  if (
+    !Number.isFinite(input.caretLineBottom) ||
+    !Number.isFinite(input.scrollOffset) ||
+    !Number.isFinite(input.viewportHeight) ||
+    !Number.isFinite(input.hiddenBottom)
+  ) {
+    return null;
+  }
   const visibleHeight = input.viewportHeight - input.hiddenBottom;
   if (visibleHeight <= 0) return null;
   const wanted = input.caretLineBottom + input.margin;

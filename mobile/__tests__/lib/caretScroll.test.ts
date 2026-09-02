@@ -41,3 +41,22 @@ describe('caretScrollTarget', () => {
     expect(caretScrollTarget({ ...base, viewportHeight: 300, hiddenBottom: 350, caretLineBottom: 400 })).toBeNull();
   });
 });
+
+describe('caretScroll finite guards', () => {
+  // measureInWindow can call back with non-numeric geometry for a view that
+  // detached between the keyboard event and the callback. NaN must not reach
+  // paddingBottom or scrollTo — Android throws on a NaN style value.
+  it('treats non-finite geometry as no overlap', () => {
+    expect(keyboardOverlap(NaN, 380)).toBe(0);
+    expect(keyboardOverlap(700, NaN)).toBe(0);
+    expect(keyboardOverlap(Infinity, 380)).toBe(0);
+  });
+
+  it('refuses to compute a scroll target from non-finite input', () => {
+    const base = { caretLineBottom: 300, scrollOffset: 0, viewportHeight: 600, hiddenBottom: 320, margin: 52 };
+    expect(caretScrollTarget({ ...base, caretLineBottom: NaN })).toBeNull();
+    expect(caretScrollTarget({ ...base, hiddenBottom: NaN })).toBeNull();
+    expect(caretScrollTarget({ ...base, viewportHeight: NaN })).toBeNull();
+    expect(caretScrollTarget({ ...base, scrollOffset: NaN })).toBeNull();
+  });
+});
