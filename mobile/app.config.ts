@@ -10,7 +10,7 @@ const isDevHttpBackend = apiBaseUrl.startsWith('http://');
 const config: ExpoConfig = {
   name: 'Strong Notes',
   slug: 'strong-notes',
-  version: '1.1.0',
+  version: '1.1.1',
   scheme: 'strongnotes',
   orientation: 'portrait',
   icon: './assets/icon.png',

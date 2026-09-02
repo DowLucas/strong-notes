@@ -1,6 +1,7 @@
 import '@/lib/i18n';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
-import { Keyboard } from 'react-native';
+import { useState } from 'react';
+import { Keyboard, TextInput } from 'react-native';
 import { NotesEditor, type HighlightSpan } from '@/src/components/NotesEditor';
 import { colors } from '@/lib/theme';
 
@@ -164,5 +165,127 @@ describe('NotesEditor', () => {
     expect(screen.queryByLabelText('Done')).toBeNull();
 
     jest.restoreAllMocks();
+  });
+});
+
+// A stateful parent so a programmatic insert flows back in as the new `value`,
+// exactly as the Log screen does.
+function StatefulEditor({ initial }: { initial: string }) {
+  const [value, setValue] = useState(initial);
+  return <NotesEditor value={value} onChangeText={setValue} spans={[]} onSpanPress={jest.fn()} placeholder="Start typing…" />;
+}
+
+describe('NotesEditor caret placement', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('never controls the native selection during ordinary typing', async () => {
+    await render(<StatefulEditor initial="RDL" />);
+    const input = screen.getByPlaceholderText('Start typing…');
+    await fireEvent(input, 'selectionChange', { nativeEvent: { selection: { start: 3, end: 3 } } });
+    await fireEvent.changeText(input, 'RDL ');
+    expect(input.props.selection).toBeUndefined();
+  });
+
+  it('places the caret imperatively after a chip insert instead of pinning the selection prop', async () => {
+    const setSelection = jest.spyOn(TextInput.prototype, 'setSelection');
+    await render(<StatefulEditor initial="RDL 40" />);
+    const input = screen.getByPlaceholderText('Start typing…');
+    await fireEvent(input, 'selectionChange', { nativeEvent: { selection: { start: 6, end: 6 } } });
+
+    await fireEvent.press(screen.getByLabelText('Insert kilograms'));
+    expect(input.props.value).toBe('RDL 40kg');
+    // The caret is moved once, to just after the insert…
+    expect(setSelection).toHaveBeenCalledTimes(1);
+    expect(setSelection).toHaveBeenCalledWith(8, 8);
+    // …and the `selection` prop is never set, so nothing can re-pin the caret
+    // later (iOS swallows the selection event for programmatic changes, which
+    // used to leave the prop stuck on the old offset).
+    expect(input.props.selection).toBeUndefined();
+
+    // Back-to-back taps read the fresh caret, not a stale render closure.
+    await fireEvent.press(screen.getByLabelText('Insert times sign'));
+    expect(input.props.value).toBe('RDL 40kgx');
+    expect(setSelection).toHaveBeenLastCalledWith(9, 9);
+  });
+});
+
+describe('NotesEditor status', () => {
+  const base = { value: 'RDL 40kg 8x3', onChangeText: jest.fn(), spans: [], onSpanPress: jest.fn() };
+
+  it('renders no status by default', async () => {
+    await render(<NotesEditor {...base} />);
+    expect(screen.queryByTestId('editor-status')).toBeNull();
+  });
+
+  it('floats the status over the editor so it can never reflow the page', async () => {
+    await render(<NotesEditor {...base} status={{ kind: 'busy', label: 'Reading…' }} />);
+    const status = screen.getByTestId('editor-status');
+    // Absolutely positioned and touch-transparent: it sits above the text
+    // instead of taking part in layout, so showing/hiding it moves nothing.
+    expect(status).toHaveStyle({ position: 'absolute' });
+    expect(status.props.pointerEvents).toBe('none');
+    expect(screen.getByText('Reading…')).toBeTruthy();
+  });
+
+  it('announces the status politely to screen readers', async () => {
+    await render(<NotesEditor {...base} status={{ kind: 'offline', label: 'Offline' }} />);
+    expect(screen.getByTestId('editor-status').props.accessibilityLiveRegion).toBe('polite');
+  });
+});
+
+describe('NotesEditor keyboard measurement', () => {
+  it('re-measures the keyboard overlap when the keyboard frame changes', async () => {
+    // iOS re-reports the frame when the docked accessory bar changes height
+    // (the confirm island appearing/disappearing). Without this subscription
+    // the editor keeps a stale overlap and mis-scrolls the caret line.
+    const events: string[] = [];
+    jest.spyOn(Keyboard, 'addListener').mockImplementation(((event: string) => {
+      events.push(event);
+      return { remove: jest.fn() };
+    }) as unknown as typeof Keyboard.addListener);
+
+    await render(
+      <NotesEditor value="RDL" onChangeText={jest.fn()} spans={[]} onSpanPress={jest.fn()} />,
+    );
+    expect(events).toEqual(
+      expect.arrayContaining(['keyboardDidShow', 'keyboardDidChangeFrame', 'keyboardDidHide']),
+    );
+    jest.restoreAllMocks();
+  });
+});
+
+describe('NotesEditor caret safety', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function OverridingParent() {
+    const [value, setValue] = useState('RDL 40');
+    // Commits something other than what the editor asked for, the way a
+    // reload (loadToday / the error strip's Retry) does.
+    return (
+      <NotesEditor value={value} onChangeText={() => setValue('ab')} spans={[]} onSpanPress={jest.fn()} placeholder="Start typing…" />
+    );
+  }
+
+  it('does not place the caret when the parent commits different text', async () => {
+    const setSelection = jest.spyOn(TextInput.prototype, 'setSelection');
+    await render(<OverridingParent />);
+    const input = screen.getByPlaceholderText('Start typing…');
+    await fireEvent(input, 'selectionChange', { nativeEvent: { selection: { start: 6, end: 6 } } });
+
+    await fireEvent.press(screen.getByLabelText('Insert kilograms'));
+    // The editor asked for caret 8 of 'RDL 40kg', but 'ab' was committed.
+    // Placing 8 in a 2-character field is out of bounds and throws on Android.
+    expect(input.props.value).toBe('ab');
+    expect(setSelection).not.toHaveBeenCalled();
+  });
+
+  it('re-measures the keyboard overlap when the editor itself is resized', async () => {
+    // The ConfirmBar mounting below the editor shrinks it while the keyboard
+    // is up, so the overlap measured on keyboardDidShow goes stale.
+    await render(
+      <NotesEditor value="RDL" onChangeText={jest.fn()} spans={[]} onSpanPress={jest.fn()} />,
+    );
+    const root = screen.getByTestId('editor-root');
+    expect(typeof root.props.onLayout).toBe('function');
   });
 });

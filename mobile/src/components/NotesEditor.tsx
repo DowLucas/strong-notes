@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,10 @@ import {
   Keyboard,
   Platform,
   Animated,
+  ActivityIndicator,
   InputAccessoryView,
   StyleSheet,
+  type KeyboardEvent,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
   type TextInputSelectionChangeEventData,
@@ -21,6 +23,7 @@ import { colors, radii, spacing, fonts, fontSize, typography } from '@/lib/theme
 import { formatPriorHistory, type ExerciseHistory } from '@/lib/priorHistory';
 import { recommendProgression, type ProgressionTarget } from '@/lib/progression';
 import { formatDate } from '@/lib/i18n';
+import { caretScrollTarget, keyboardOverlap } from '@/lib/caretScroll';
 import { KeyboardAccessoryBar, type GrammarChip } from './KeyboardAccessoryBar';
 import {
   currentWordAt,
@@ -52,6 +55,13 @@ const EXAMPLE_TEXT = EXAMPLE_LINES.join('\n');
 // Blue tint for exercises with prior-session history (also the legend swatch).
 const HISTORY_TINT = '#DCE8FA';
 
+/**
+ * Ambient state of the note itself — a scan in flight, or the server being
+ * unreachable. Shown as a small pill floating over the bottom of the editor
+ * (see StatusPill), never in page layout.
+ */
+export type EditorStatus = { kind: 'busy' | 'offline'; label: string };
+
 export type HighlightSpan = {
   start: number;
   end: number;
@@ -64,12 +74,9 @@ export type HighlightSpan = {
   exerciseId?: string | null;
 };
 
-type SpanRect = { x: number; y: number; width: number; height: number };
-
 function renderSegments(
   text: string,
   spans: HighlightSpan[],
-  onSpanLayout: (entryId: string, rect: SpanRect) => void,
   historyIds: Set<string>,
   spanLabel: (text: string, status: HighlightSpan['status']) => string,
 ): ReactNode[] {
@@ -99,7 +106,6 @@ function renderSegments(
           // before" cue, independent of where the caret is.
           historyIds.has(span.entryId) ? styles.historyTint : null,
         ]}
-        onLayout={(e) => onSpanLayout(span.entryId, e.nativeEvent.layout)}
         pointerEvents="auto"
         accessibilityLabel={spanLabel(spanText, span.status)}
       >
@@ -125,6 +131,7 @@ export function NotesEditor({
   spans,
   onSpanPress,
   placeholder,
+  status = null,
   dictionaryTokens = [],
   priorSessionsByExercise = {},
 }: {
@@ -133,6 +140,9 @@ export function NotesEditor({
   spans: HighlightSpan[];
   onSpanPress: (entryId: string) => void;
   placeholder?: string;
+  // Scan/connection state, floated over the editor rather than placed in the
+  // page — see EditorStatus.
+  status?: EditorStatus | null;
   // Known shorthand tokens from the user's dictionary, powering autocomplete.
   dictionaryTokens?: string[];
   // Recent prior sessions keyed by exercise id (newest first) — powers the
@@ -142,26 +152,37 @@ export function NotesEditor({
   const { t } = useTranslation();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  // How much of the editor the keyboard (with its docked accessory bar)
+  // covers, in points — measured, not derived from the keyboard height; see
+  // the keyboard listener below.
+  const [hiddenByKeyboard, setHiddenByKeyboard] = useState(0);
   const [accessoryHeight, setAccessoryHeight] = useState(0);
-  const [spanRects, setSpanRects] = useState<Record<string, SpanRect>>({});
   const [exampleDismissed, setExampleDismissed] = useState(false);
-  // The caret offset drives autocomplete + the inline confirm chip. We track it
-  // in state (reactive), but only *control* the native selection transiently —
-  // right after a programmatic insert (forcedSelection) — so ordinary typing
-  // keeps its native cursor behavior and never fights a controlled value.
+  // The caret offset drives autocomplete + the inline confirm chip. The native
+  // selection is never controlled (no `selection` prop): ordinary typing keeps
+  // its native cursor behavior, and a programmatic insert places the caret
+  // once, imperatively, after the new value has been committed (see
+  // pendingCaretRef). iOS emits no selection event for programmatic changes,
+  // so a controlled `selection` prop stayed pinned on a stale offset and was
+  // re-applied later, dragging the cursor back.
   const [caret, setCaret] = useState(0);
-  const [forcedSelection, setForcedSelection] = useState<
-    { start: number; end: number } | undefined
-  >(undefined);
   // Refs mirror the latest caret and text so back-to-back accessory taps (e.g.
   // rapid number-row entry) each read the freshest value, not a stale render
   // closure. `caret` state stays for the reactive suggestion/confirm derivation.
   const caretRef = useRef(0);
   const valueRef = useRef(value);
   valueRef.current = value;
+  const inputRef = useRef<TextInput>(null);
+  // A requested caret position, held with the exact text it belongs to (see
+  // the effect below).
+  const pendingCaretRef = useRef<{ caret: number; text: string } | null>(null);
+  // The keyboard's top edge in window coordinates, kept so the overlap can be
+  // re-measured when the editor resizes rather than only on keyboard events.
+  const keyboardTopRef = useRef<number | null>(null);
   // Drives the prior-stats panel's fade/slide as the caret moves between lines.
   const historyAnim = useRef(new Animated.Value(0)).current;
   // Scroll bookkeeping for keeping the caret line above the keyboard.
+  const containerRef = useRef<View>(null);
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(0);
   const viewportHeightRef = useRef(0);
@@ -170,26 +191,35 @@ export function NotesEditor({
   // and long-press (iOS magnifier) cursor placement exactly like any text
   // field. Confirm/details for the caret's line live in the keyboard bar
   // (and the Confirm-all bar), so nothing needs to be tapped in the text.
-  function handleSpanLayout(entryId: string, rect: SpanRect) {
-    setSpanRects((prev) => ({ ...prev, [entryId]: rect }));
-  }
-
   function handleSelectionChange(e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) {
     const start = e.nativeEvent.selection.start;
     caretRef.current = start;
     setCaret(start);
-    // Native selection has caught up to (or moved past) any forced value —
-    // release control so we don't pin the cursor.
-    if (forcedSelection) setForcedSelection(undefined);
   }
 
   function replaceText(next: string, nextCaret: number) {
     valueRef.current = next;
     caretRef.current = nextCaret;
+    pendingCaretRef.current = { caret: nextCaret, text: next };
     onChangeText(next);
     setCaret(nextCaret);
-    setForcedSelection({ start: nextCaret, end: nextCaret });
   }
+
+  // Once the parent has committed the inserted text as `value`, move the
+  // native caret to just after it. This runs after React Native's own text
+  // push for the same commit, so the offset refers to the new text.
+  //
+  // The offset is only meaningful for the exact text it was computed against.
+  // A parent that commits something else — a reload replacing the note, say —
+  // would otherwise get the caret dropped at an offset that may not even be
+  // inside the field, which throws on Android.
+  useEffect(() => {
+    const pending = pendingCaretRef.current;
+    if (pending == null) return;
+    pendingCaretRef.current = null;
+    if (pending.text !== value) return;
+    inputRef.current?.setSelection(pending.caret, pending.caret);
+  }, [value]);
 
   // Splice a token (digit, x, kg, bar, ⁃ line) at the caret.
   function handleInsert(insert: string) {
@@ -205,20 +235,48 @@ export function NotesEditor({
     replaceText(text, next);
   }
 
-  useEffect(() => {
-    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
-      setKeyboardVisible(true);
-      setKeyboardHeight(e?.endCoordinates?.height ?? 0);
+  // The overlap is measured from the keyboard's top edge and the editor's
+  // bottom edge in window coordinates. Subtracting the reported keyboard
+  // *height* over-counts: on iOS that height already includes the docked
+  // accessory bar, and the editor doesn't reach the screen bottom (tab bar),
+  // so the note was treated as far more hidden than it was and the
+  // auto-scroll lurched it on nearly every keystroke.
+  //
+  // Re-run on the editor's own layout too, not just on keyboard events: the
+  // ConfirmBar mounting below the editor shrinks it while the keyboard is up,
+  // which moves its bottom edge and invalidates the last measurement.
+  const measureOverlap = useCallback(() => {
+    const keyboardTop = keyboardTopRef.current;
+    if (keyboardTop == null) return;
+    containerRef.current?.measureInWindow((_x, y, _w, h) => {
+      setHiddenByKeyboard(keyboardOverlap(y + h, keyboardTop));
     });
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      setKeyboardVisible(false);
-      setKeyboardHeight(0);
-    });
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
   }, []);
+
+  useEffect(() => {
+    const trackFrame = (e: KeyboardEvent) => {
+      const keyboardTop = e?.endCoordinates?.screenY;
+      if (keyboardTop == null) return;
+      keyboardTopRef.current = keyboardTop;
+      measureOverlap();
+    };
+    const subs = [
+      Keyboard.addListener('keyboardDidShow', (e) => {
+        setKeyboardVisible(true);
+        setKeyboardHeight(e?.endCoordinates?.height ?? 0);
+        trackFrame(e);
+      }),
+      // iOS re-reports the frame when the accessory bar changes height.
+      Keyboard.addListener('keyboardDidChangeFrame', trackFrame),
+      Keyboard.addListener('keyboardDidHide', () => {
+        setKeyboardVisible(false);
+        setKeyboardHeight(0);
+        keyboardTopRef.current = null;
+        setHiddenByKeyboard(0);
+      }),
+    ];
+    return () => subs.forEach((s) => s.remove());
+  }, [measureOverlap]);
 
   const currentWord = currentWordAt(value, caret).word;
   const suggestions = suggestTokens(dictionaryTokens, currentWord);
@@ -248,21 +306,29 @@ export function NotesEditor({
   const caretLineBottom = TOP_PADDING + (caretLineIndex + 1) * LINE_HEIGHT;
   const historyTop = caretLineBottom;
   const historyKey = historySpan && activeHistory ? historySpan.entryId : null;
-  // Space reserved under the text so the last lines clear the keyboard and
-  // the accessory bar docked above it.
-  const bottomInset = keyboardHeight + accessoryHeight;
+  // The part of the editor hidden under the keyboard. On iOS the accessory
+  // bar is inside the keyboard frame (InputAccessoryView), so it's already in
+  // the measured overlap; on Android we float the bar ourselves above it.
+  const hiddenBottom = hiddenByKeyboard + (Platform.OS === 'android' ? accessoryHeight : 0);
 
-  // Keep the caret's line in view while typing near the bottom: when it would
-  // sit under the keyboard/accessory bar, scroll just enough to reveal it.
+  // Keep the caret's line in view: only when it sits under the keyboard, and
+  // only when the caret changes line — never per keystroke — scroll just
+  // enough to reveal it.
   useEffect(() => {
-    const viewport = viewportHeightRef.current;
-    if (!keyboardVisible || viewport === 0) return;
-    const visibleBottom = scrollOffsetRef.current + viewport - bottomInset;
-    const target = caretLineBottom + CARET_SCROLL_MARGIN;
-    if (target > visibleBottom) {
-      scrollRef.current?.scrollTo({ y: target - (viewport - bottomInset), animated: true });
-    }
-  }, [caretLineBottom, bottomInset, keyboardVisible, value.length]);
+    if (!keyboardVisible) return;
+    const y = caretScrollTarget({
+      caretLineBottom,
+      scrollOffset: scrollOffsetRef.current,
+      viewportHeight: viewportHeightRef.current,
+      hiddenBottom,
+      margin: CARET_SCROLL_MARGIN,
+    });
+    if (y == null) return;
+    // Record the destination now so keystrokes during the animation don't
+    // re-issue the same scroll from a stale offset.
+    scrollOffsetRef.current = y;
+    scrollRef.current?.scrollTo({ y, animated: true });
+  }, [caretLineBottom, hiddenBottom, keyboardVisible]);
 
   // Insert a recommended set token at the end of its exercise's line, e.g.
   // `rdl` → `rdl 42.5kgx8`. The line is the one the Progression hint is for.
@@ -350,11 +416,13 @@ export function NotesEditor({
   // reaches the TextInput and behaves exactly like a native text field.
   // Both layers live in the same scrolling container so they stay aligned.
   return (
-    <View style={styles.container}>
+    <View testID="editor-root" ref={containerRef} style={styles.container} onLayout={measureOverlap}>
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomInset }]}
+        // Room under the text so the last line (and its breathing margin)
+        // can always be scrolled clear of the keyboard.
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: hiddenBottom + CARET_SCROLL_MARGIN }]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="none"
         onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -367,11 +435,11 @@ export function NotesEditor({
       >
         <View style={[styles.editorArea, !showExample && styles.editorAreaGrow]}>
           <TextInput
+            ref={inputRef}
             style={[styles.text, styles.input]}
             value={value}
             onChangeText={onChangeText}
             onSelectionChange={handleSelectionChange}
-            selection={forcedSelection}
             placeholder={placeholder}
             placeholderTextColor={colors.lead}
             selectionColor={colors.graphite}
@@ -396,7 +464,7 @@ export function NotesEditor({
           />
           <View style={styles.overlay} pointerEvents="box-none">
             <Text style={styles.text} pointerEvents="none">
-              {renderSegments(value, spans, handleSpanLayout, historyIds, spanLabel)}
+              {renderSegments(value, spans, historyIds, spanLabel)}
             </Text>
             {/* Progression: a blue-tinted strip that fades/slides in below the
                 exercise, showing last session + tap-to-fill recommended targets.
@@ -460,6 +528,10 @@ export function NotesEditor({
           <ExampleBlock onUse={() => replaceText(EXAMPLE_TEXT, EXAMPLE_TEXT.length)} onDismiss={() => setExampleDismissed(true)} />
         ) : null}
       </ScrollView>
+      {/* Status floats over the bottom of the editor, lifted clear of the
+          keyboard. Absolute + pointerEvents="none" so it never takes part in
+          layout: appearing or vanishing can't reflow the note or the header. */}
+      {status ? <StatusPill status={status} bottom={hiddenBottom + spacing.s3} /> : null}
       {keyboardVisible ? (
         <View style={styles.toolbar} pointerEvents="box-none">
           <Pressable
@@ -485,6 +557,31 @@ export function NotesEditor({
           {accessory}
         </View>
       ) : null}
+    </View>
+  );
+}
+
+// A quiet, low-contrast pill reporting what the note is doing. It hugs the
+// bottom-left corner so it stays out of the way of the caret line (which the
+// editor keeps CARET_SCROLL_MARGIN above the keyboard).
+function StatusPill({ status, bottom }: { status: EditorStatus; bottom: number }) {
+  return (
+    <View
+      testID="editor-status"
+      style={[styles.statusWrap, { bottom }]}
+      pointerEvents="none"
+      accessibilityLiveRegion="polite"
+    >
+      <View style={styles.statusPill}>
+        {status.kind === 'busy' ? (
+          <ActivityIndicator size="small" color={colors.lead} />
+        ) : (
+          <Feather name="cloud-off" size={14} color={colors.lead} />
+        )}
+        <Text style={styles.statusLabel} numberOfLines={1}>
+          {status.label}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -607,6 +704,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pressed: { opacity: 0.7 },
+  // Floating status. `left` only (no `right`) so the pill hugs its content
+  // and leaves the rest of the line visible.
+  statusWrap: { position: 'absolute', left: spacing.s3 },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+    paddingVertical: spacing.s1,
+    paddingHorizontal: spacing.s3,
+    borderRadius: radii.pill,
+    backgroundColor: colors.bone,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.lead,
+  },
+  statusLabel: { ...typography.monoCaption, color: colors.lead },
   androidAccessory: { position: 'absolute', left: 0, right: 0 },
   // Empty-state example + legend.
   example: {
