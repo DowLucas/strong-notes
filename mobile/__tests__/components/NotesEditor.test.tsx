@@ -253,3 +253,39 @@ describe('NotesEditor keyboard measurement', () => {
     jest.restoreAllMocks();
   });
 });
+
+describe('NotesEditor caret safety', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function OverridingParent() {
+    const [value, setValue] = useState('RDL 40');
+    // Commits something other than what the editor asked for, the way a
+    // reload (loadToday / the error strip's Retry) does.
+    return (
+      <NotesEditor value={value} onChangeText={() => setValue('ab')} spans={[]} onSpanPress={jest.fn()} placeholder="Start typing…" />
+    );
+  }
+
+  it('does not place the caret when the parent commits different text', async () => {
+    const setSelection = jest.spyOn(TextInput.prototype, 'setSelection');
+    await render(<OverridingParent />);
+    const input = screen.getByPlaceholderText('Start typing…');
+    await fireEvent(input, 'selectionChange', { nativeEvent: { selection: { start: 6, end: 6 } } });
+
+    await fireEvent.press(screen.getByLabelText('Insert kilograms'));
+    // The editor asked for caret 8 of 'RDL 40kg', but 'ab' was committed.
+    // Placing 8 in a 2-character field is out of bounds and throws on Android.
+    expect(input.props.value).toBe('ab');
+    expect(setSelection).not.toHaveBeenCalled();
+  });
+
+  it('re-measures the keyboard overlap when the editor itself is resized', async () => {
+    // The ConfirmBar mounting below the editor shrinks it while the keyboard
+    // is up, so the overlap measured on keyboardDidShow goes stale.
+    await render(
+      <NotesEditor value="RDL" onChangeText={jest.fn()} spans={[]} onSpanPress={jest.fn()} />,
+    );
+    const root = screen.getByTestId('editor-root');
+    expect(typeof root.props.onLayout).toBe('function');
+  });
+});

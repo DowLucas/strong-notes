@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -173,7 +173,12 @@ export function NotesEditor({
   const valueRef = useRef(value);
   valueRef.current = value;
   const inputRef = useRef<TextInput>(null);
-  const pendingCaretRef = useRef<number | null>(null);
+  // A requested caret position, held with the exact text it belongs to (see
+  // the effect below).
+  const pendingCaretRef = useRef<{ caret: number; text: string } | null>(null);
+  // The keyboard's top edge in window coordinates, kept so the overlap can be
+  // re-measured when the editor resizes rather than only on keyboard events.
+  const keyboardTopRef = useRef<number | null>(null);
   // Drives the prior-stats panel's fade/slide as the caret moves between lines.
   const historyAnim = useRef(new Animated.Value(0)).current;
   // Scroll bookkeeping for keeping the caret line above the keyboard.
@@ -195,7 +200,7 @@ export function NotesEditor({
   function replaceText(next: string, nextCaret: number) {
     valueRef.current = next;
     caretRef.current = nextCaret;
-    pendingCaretRef.current = nextCaret;
+    pendingCaretRef.current = { caret: nextCaret, text: next };
     onChangeText(next);
     setCaret(nextCaret);
   }
@@ -203,11 +208,17 @@ export function NotesEditor({
   // Once the parent has committed the inserted text as `value`, move the
   // native caret to just after it. This runs after React Native's own text
   // push for the same commit, so the offset refers to the new text.
+  //
+  // The offset is only meaningful for the exact text it was computed against.
+  // A parent that commits something else — a reload replacing the note, say —
+  // would otherwise get the caret dropped at an offset that may not even be
+  // inside the field, which throws on Android.
   useEffect(() => {
-    const next = pendingCaretRef.current;
-    if (next == null) return;
+    const pending = pendingCaretRef.current;
+    if (pending == null) return;
     pendingCaretRef.current = null;
-    inputRef.current?.setSelection(next, next);
+    if (pending.text !== value) return;
+    inputRef.current?.setSelection(pending.caret, pending.caret);
   }, [value]);
 
   // Splice a token (digit, x, kg, bar, ⁃ line) at the caret.
@@ -224,36 +235,48 @@ export function NotesEditor({
     replaceText(text, next);
   }
 
+  // The overlap is measured from the keyboard's top edge and the editor's
+  // bottom edge in window coordinates. Subtracting the reported keyboard
+  // *height* over-counts: on iOS that height already includes the docked
+  // accessory bar, and the editor doesn't reach the screen bottom (tab bar),
+  // so the note was treated as far more hidden than it was and the
+  // auto-scroll lurched it on nearly every keystroke.
+  //
+  // Re-run on the editor's own layout too, not just on keyboard events: the
+  // ConfirmBar mounting below the editor shrinks it while the keyboard is up,
+  // which moves its bottom edge and invalidates the last measurement.
+  const measureOverlap = useCallback(() => {
+    const keyboardTop = keyboardTopRef.current;
+    if (keyboardTop == null) return;
+    containerRef.current?.measureInWindow((_x, y, _w, h) => {
+      setHiddenByKeyboard(keyboardOverlap(y + h, keyboardTop));
+    });
+  }, []);
+
   useEffect(() => {
-    // The overlap is measured from the keyboard's top edge and the editor's
-    // bottom edge in window coordinates. Subtracting the reported keyboard
-    // *height* over-counts: on iOS that height already includes the docked
-    // accessory bar, and the editor doesn't reach the screen bottom (tab
-    // bar), so the note was treated as far more hidden than it was and the
-    // auto-scroll lurched it on nearly every keystroke.
-    const measureOverlap = (e: KeyboardEvent) => {
+    const trackFrame = (e: KeyboardEvent) => {
       const keyboardTop = e?.endCoordinates?.screenY;
       if (keyboardTop == null) return;
-      containerRef.current?.measureInWindow((_x, y, _w, h) => {
-        setHiddenByKeyboard(keyboardOverlap(y + h, keyboardTop));
-      });
+      keyboardTopRef.current = keyboardTop;
+      measureOverlap();
     };
     const subs = [
       Keyboard.addListener('keyboardDidShow', (e) => {
         setKeyboardVisible(true);
         setKeyboardHeight(e?.endCoordinates?.height ?? 0);
-        measureOverlap(e);
+        trackFrame(e);
       }),
       // iOS re-reports the frame when the accessory bar changes height.
-      Keyboard.addListener('keyboardDidChangeFrame', measureOverlap),
+      Keyboard.addListener('keyboardDidChangeFrame', trackFrame),
       Keyboard.addListener('keyboardDidHide', () => {
         setKeyboardVisible(false);
         setKeyboardHeight(0);
+        keyboardTopRef.current = null;
         setHiddenByKeyboard(0);
       }),
     ];
     return () => subs.forEach((s) => s.remove());
-  }, []);
+  }, [measureOverlap]);
 
   const currentWord = currentWordAt(value, caret).word;
   const suggestions = suggestTokens(dictionaryTokens, currentWord);
@@ -393,7 +416,7 @@ export function NotesEditor({
   // reaches the TextInput and behaves exactly like a native text field.
   // Both layers live in the same scrolling container so they stay aligned.
   return (
-    <View ref={containerRef} style={styles.container}>
+    <View testID="editor-root" ref={containerRef} style={styles.container} onLayout={measureOverlap}>
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
