@@ -1,11 +1,12 @@
 // app/(tabs)/index.tsx
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, ActivityIndicator, StyleSheet, Keyboard } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Keyboard } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { scanNote, type ScannedEntry } from '@/src/parsing/scanNote';
+import { shiftSpans } from '@/src/parsing/spanShift';
 import {
   getLocalSession,
   upsertLocalSession,
@@ -13,7 +14,8 @@ import {
   type LocalSetEntry,
 } from '@/src/db/sessionsRepo';
 import { getCachedAbbreviations } from '@/src/db/abbreviationsRepo';
-import { NotesEditor, type HighlightSpan } from '@/src/components/NotesEditor';
+import { NotesEditor, type EditorStatus, type HighlightSpan } from '@/src/components/NotesEditor';
+import { useDelayedVisibility } from '@/lib/useDelayedVisibility';
 import { Toast, useToast } from '@/components/Toast';
 import { TopBar } from '@/components/TopBar';
 import { ConfirmBar, type PendingGroup } from '@/src/components/ConfirmBar';
@@ -27,6 +29,12 @@ import { useTranslation } from 'react-i18next';
 
 const PERSIST_DELAY_MS = 300;
 const SCAN_DELAY_MS = 700;
+// Most scans resolve from the local dictionary in a few milliseconds. Showing
+// "Reading…" for those is a flicker the eye catches but can't read, so the
+// indicator waits to see whether the scan is actually slow (an LLM round-trip)
+// and then stays up long enough to be legible.
+const STATUS_DELAY_MS = 350;
+const STATUS_MIN_VISIBLE_MS = 500;
 
 // What went wrong, so the strip can say so honestly (and offer the right
 // action): the note couldn't be loaded (Retry), couldn't be saved locally
@@ -140,10 +148,15 @@ export default function LogScreen() {
       // result) while this one was awaiting the network — if so, this result
       // is stale and must be dropped, not applied on top of the newer state.
       if (generation !== scanGenerationRef.current) return;
-      applyEntries(scanned);
+      // The user may have kept typing while this scan was in flight: its
+      // offsets refer to `noteText`, so move them onto the current text — and
+      // save the current text, never the older one the scan was given.
+      const currentText = textRef.current;
+      const aligned = shiftSpans(scanned, noteText, currentText);
+      applyEntries(aligned);
       if (unreachable) {
-        // Only announce going offline once per episode — the header status
-        // keeps saying so until a scan gets through.
+        // Only announce going offline once per episode — the editor's status
+        // pill keeps saying so until a scan gets through.
         if (!offlineRef.current) setError({ kind: 'network' });
         offlineRef.current = true;
         setOffline(true);
@@ -153,7 +166,7 @@ export default function LogScreen() {
         setError((e) => (e?.kind === 'network' ? null : e));
       }
       try {
-        await persist(noteText, scanned);
+        await persist(currentText, aligned);
         setError((e) => (e?.kind === 'saveLocal' ? null : e));
       } catch (err) {
         if (generation !== scanGenerationRef.current) return;
@@ -228,10 +241,14 @@ export default function LogScreen() {
 
   // Look up prior-session stats for every resolved exercise in the note, so the
   // editor can hint "you did this before" on the caret's line. Local and fast.
+  // Keyed on the set of exercise ids, not `entries` itself: entries are
+  // re-created on every keystroke (their highlight offsets move) but the
+  // lookup only needs to run when the exercises in the note change.
+  const exerciseIdsKey = Array.from(new Set(entries.flatMap((e) => (e.exerciseId ? [e.exerciseId] : []))))
+    .sort()
+    .join('\n');
   useEffect(() => {
-    const ids = Array.from(
-      new Set(entries.filter((e) => e.exerciseId).map((e) => e.exerciseId as string)),
-    );
+    const ids = exerciseIdsKey ? exerciseIdsKey.split('\n') : [];
     if (ids.length === 0) {
       setPriorSessions({});
       return;
@@ -250,9 +267,12 @@ export default function LogScreen() {
     return () => {
       cancelled = true;
     };
-  }, [entries]);
+  }, [exerciseIdsKey]);
 
   function handleChangeText(next: string) {
+    // Keep highlights attached to their words until the re-scan lands.
+    const shifted = shiftSpans(entriesRef.current, textRef.current, next);
+    if (shifted !== entriesRef.current) applyEntries(shifted);
     setText(next);
     textRef.current = next;
     dirtyRef.current = true;
@@ -400,6 +420,18 @@ export default function LogScreen() {
   const popoverEntries = entries.filter((e) => e.groupId === popoverGroupId);
   const popoverLine = popoverEntries.length > 0 ? lineAt(text, popoverEntries[0].spanStart) : undefined;
 
+  // A slow scan takes precedence over the standing offline notice — it's the
+  // thing that just changed.
+  const showScanning = useDelayedVisibility(scanning, {
+    delayMs: STATUS_DELAY_MS,
+    minVisibleMs: STATUS_MIN_VISIBLE_MS,
+  });
+  const status: EditorStatus | null = showScanning
+    ? { kind: 'busy', label: t('log.status.reading') }
+    : offline
+      ? { kind: 'offline', label: t('log.status.offline') }
+      : null;
+
   const errorMessage = error
     ? error.kind === 'load'
       ? t('log.errors.load')
@@ -417,17 +449,6 @@ export default function LogScreen() {
         <Text style={styles.dateLabel} accessibilityRole="header">
           {t('log.entryDate', { date: formatLongDate(todayDate()) })}
         </Text>
-        {scanning ? (
-          <View style={styles.status} accessibilityLiveRegion="polite">
-            <ActivityIndicator size="small" color={colors.lead} />
-            <Text style={styles.statusText}>{t('log.status.reading')}</Text>
-          </View>
-        ) : offline ? (
-          <View style={styles.status} accessibilityLiveRegion="polite">
-            <Feather name="cloud-off" size={14} color={colors.lead} />
-            <Text style={styles.statusText}>{t('log.status.offline')}</Text>
-          </View>
-        ) : null}
       </View>
       <View style={styles.editorWrap}>
         <NotesEditor
@@ -436,6 +457,7 @@ export default function LogScreen() {
           spans={spans}
           onSpanPress={handleSpanPress}
           placeholder={t('log.placeholder')}
+          status={status}
           dictionaryTokens={dictionaryTokens}
           priorSessionsByExercise={priorSessions}
         />
@@ -489,17 +511,15 @@ export default function LogScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.paper },
+  // The date is the header's only content, so nothing can compete for width
+  // with it: its wrapping (and therefore the header's height, and where the
+  // note below starts) is fixed. Transient status floats over the editor
+  // instead — see NotesEditor's StatusPill.
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.s2,
     paddingHorizontal: spacing.s4,
     paddingTop: spacing.s3,
   },
-  dateLabel: { ...typography.title, color: colors.graphite, flexShrink: 1 },
-  status: { flexDirection: 'row', alignItems: 'center', gap: spacing.s1 },
-  statusText: { ...typography.monoCaption, color: colors.lead },
+  dateLabel: { ...typography.title, color: colors.graphite },
   editorWrap: { flex: 1 },
   errorStrip: {
     position: 'absolute',

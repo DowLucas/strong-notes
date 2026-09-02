@@ -1,11 +1,13 @@
 // __tests__/app/log.test.tsx
 import { Keyboard } from 'react-native';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { colors } from '@/lib/theme';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react-native';
 import LogScreen from '../../app/(tabs)/index';
 import { useAuth } from '@/lib/auth';
 import { resetDbForTests } from '@/src/db/client';
 import { getCachedAbbreviations } from '@/src/db/abbreviationsRepo';
 import { getLocalSession, upsertLocalSession } from '@/src/db/sessionsRepo';
+import * as sessionsRepo from '@/src/db/sessionsRepo';
 import { scanNote } from '@/src/parsing/scanNote';
 
 jest.mock('@/lib/auth');
@@ -509,5 +511,131 @@ describe('LogScreen (notes-style)', () => {
       expect(session?.entries).toHaveLength(1);
       expect(session?.entries[0].exerciseId).toBe('ex-dip');
     });
+  });
+});
+
+describe('LogScreen highlight stability while typing', () => {
+  const placeholder = 'e.g. Bench 60kg 8x3';
+  const entry = (overrides: Record<string, unknown>) => ({
+    id: 'entry-1', groupId: 'g-1', exerciseId: 'ex-1', equipment: null, weightKg: 40, reps: 8, sets: 3,
+    rawText: '40kg 8x3', parsedBy: 'DICTIONARY', order: 0, synced: 0, status: 'resolved',
+    exerciseName: 'RDL', spanStart: 0, spanEnd: 12, ...overrides,
+  });
+
+  it('keeps highlights on their words while typing before the next scan lands', async () => {
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText(placeholder);
+    await fireEvent.changeText(input, 'RDL 40kg 8x3');
+    await waitFor(
+      () => expect(screen.getByText('RDL 40kg 8x3')).toHaveStyle({ backgroundColor: colors.mossPale }),
+      { timeout: 3000 },
+    );
+
+    // Typing at the start of the note shifts the whole set right by 3 chars.
+    // Until the debounced re-scan lands, the highlight must follow the text —
+    // not keep slicing offsets 0..12 out of the new string ("BB RDL 40kg ").
+    await fireEvent.changeText(input, 'BB RDL 40kg 8x3');
+    expect(screen.getByText('RDL 40kg 8x3')).toHaveStyle({ backgroundColor: colors.mossPale });
+    expect(screen.getByText('BB')).toBeTruthy();
+    expect(screen.queryByText('BB RDL 40kg')).toBeNull();
+  });
+
+  it("re-aligns a scan's result to text typed while it was in flight, and saves the current text", async () => {
+    let resolveScan!: (v: unknown) => void;
+    (scanNote as jest.Mock).mockImplementationOnce(() => new Promise((res) => { resolveScan = res; }));
+
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText(placeholder);
+    await fireEvent.changeText(input, 'RDL 40kg 8x3');
+    await waitFor(() => expect(scanNote).toHaveBeenCalledTimes(1), { timeout: 3000 });
+
+    // The user keeps typing while the scan of the older text is in flight;
+    // the debounced local save of the new text runs in the meantime.
+    await fireEvent.changeText(input, 'BB RDL 40kg 8x3');
+    await new Promise((r) => setTimeout(r, 350));
+
+    await act(async () => {
+      resolveScan([entry({})]); // offsets 0..12 relative to 'RDL 40kg 8x3'
+    });
+
+    await waitFor(() => expect(screen.getByText('RDL 40kg 8x3')).toHaveStyle({ backgroundColor: colors.mossPale }));
+    expect(screen.queryByText('BB RDL 40kg')).toBeNull();
+    // The stale scan must not persist the OLD note text over the newer one.
+    const session = await getLocalSession(todayDate());
+    expect(session?.notes).toBe('BB RDL 40kg 8x3');
+  });
+});
+
+describe('LogScreen scan status', () => {
+  const placeholder = 'e.g. Bench 60kg 8x3';
+
+  it('never flashes "Reading…" for a scan that finishes quickly', async () => {
+    let resolveScan!: (v: unknown) => void;
+    (scanNote as jest.Mock).mockImplementationOnce(() => new Promise((res) => { resolveScan = res; }));
+
+    await render(<LogScreen />);
+    await fireEvent.changeText(screen.getByPlaceholderText(placeholder), 'RDL 40kg 8x3');
+    await waitFor(() => expect(scanNote).toHaveBeenCalledTimes(1), { timeout: 3000 });
+    expect(screen.queryByText('Reading…')).toBeNull();
+
+    // Resolves well inside the show-delay, so the indicator never mounts —
+    // no split-second appearance, and nothing reflows.
+    await act(async () => {
+      resolveScan([]);
+    });
+    expect(screen.queryByText('Reading…')).toBeNull();
+    expect(screen.queryByTestId('editor-status')).toBeNull();
+  });
+
+  it('shows a slow scan as a floating status, never in the header', async () => {
+    let resolveScan!: (v: unknown) => void;
+    (scanNote as jest.Mock).mockImplementationOnce(() => new Promise((res) => { resolveScan = res; }));
+
+    await render(<LogScreen />);
+    const header = screen.getByRole('header');
+    await fireEvent.changeText(screen.getByPlaceholderText(placeholder), 'RDL 40kg 8x3');
+
+    await waitFor(() => expect(screen.getByText('Reading…')).toBeTruthy(), { timeout: 3000 });
+    // The status lives in the editor's floating layer; the date header is
+    // untouched, so its width and wrapping never change.
+    expect(screen.getByTestId('editor-status')).toBeTruthy();
+    expect(screen.getByRole('header')).toBe(header);
+    expect(within(header).queryByText('Reading…')).toBeNull();
+
+    await act(async () => {
+      resolveScan([]);
+    });
+    await waitFor(() => expect(screen.queryByText('Reading…')).toBeNull(), { timeout: 3000 });
+  });
+});
+
+describe('LogScreen query churn', () => {
+  it('does not re-query prior sessions on every keystroke', async () => {
+    // Highlights now shift on each keystroke, so `entries` is a new array on
+    // every change. The prior-session lookup must key on WHICH exercises are
+    // in the note, not on entry identity, or every character typed fires a
+    // round of DB queries.
+    const entry = {
+      id: 'entry-1', groupId: 'g-1', exerciseId: 'ex-1', equipment: null, weightKg: 40, reps: 8,
+      sets: 3, rawText: '40kg 8x3', parsedBy: 'DICTIONARY', order: 0, synced: 0,
+      status: 'resolved', exerciseName: 'RDL', spanStart: 0, spanEnd: 12,
+    };
+    (scanNote as jest.Mock).mockResolvedValue([entry]);
+    const spy = jest.spyOn(sessionsRepo, 'getRecentSessionsForExercise');
+
+    await render(<LogScreen />);
+    const input = screen.getByPlaceholderText('e.g. Bench 60kg 8x3');
+    await fireEvent.changeText(input, 'RDL 40kg 8x3');
+    await waitFor(() => expect(spy).toHaveBeenCalled(), { timeout: 3000 });
+
+    const callsAfterScan = spy.mock.calls.length;
+    // Type at the START of the note, which shifts the highlight and so
+    // rebuilds every entry object. Same exercise, so nothing new to look up.
+    await fireEvent.changeText(input, 'B RDL 40kg 8x3');
+    await fireEvent.changeText(input, 'BB RDL 40kg 8x3');
+    await fireEvent.changeText(input, 'BB  RDL 40kg 8x3');
+    expect(spy.mock.calls.length).toBe(callsAfterScan);
+
+    spy.mockRestore();
   });
 });
